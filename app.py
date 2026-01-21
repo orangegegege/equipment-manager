@@ -4,26 +4,28 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import json
-import os  # <--- 記得要加上這個！
+import os 
 
-# --- 設定與連線 (改良版：優先讀取本地檔案) ---
+# --- 設定與連線 (最終穩定版) ---
 SCOPE = ['https://www.googleapis.com/auth/spreadsheets', "https://www.googleapis.com/auth/drive"]
-SHEET_ID = '1oa6qhkVlCxM0gK6JNgcXwlPv6XfQK0ExcjApmwOzNhw' # 🔴 記得確認這裡還是你的 ID！
+SHEET_ID = '1F5bK-C2O7w7z... (請確認這裡還是你的 ID)' # 🔴 這裡記得要檢查是不是你的 ID
 
 def connect_google_sheet():
-    """連線到 Google Sheets (自動偵測環境)"""
+    """連線到 Google Sheets"""
     try:
-        # 情況 A：優先檢查本地有沒有 'service_account.json'
+        # 情況 A：本地開發 (讀檔案)
         if os.path.exists('service_account.json'):
             creds = ServiceAccountCredentials.from_json_keyfile_name('service_account.json', SCOPE)
         
-        # 情況 B：如果本地找不到，才去讀取雲端 Secrets
-        elif "GCP_KEY" in st.secrets:
-            key_dict = json.loads(st.secrets["GCP_KEY"])
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, SCOPE)
+        # 情況 B：雲端部署 (直接讀 Secrets 字典)
+        # 我們檢查是否有 private_key 這個欄位，如果有，代表 Secrets 設定正確
+        elif "private_key" in st.secrets:
+            # 直接把 secrets 當成字典傳進去，不需要 json 解析
+            creds_dict = dict(st.secrets)
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
             
         else:
-            raise Exception("找不到鑰匙！請確認本地有 json 檔，或雲端有設定 Secrets。")
+            raise Exception("找不到鑰匙！請確認 Secrets 設定正確。")
             
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).sheet1
