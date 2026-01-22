@@ -9,7 +9,7 @@ import os
 # --- 設定與連線 (保持不變) ---
 SCOPE = ['https://www.googleapis.com/auth/spreadsheets', "https://www.googleapis.com/auth/drive"]
 # 🔴 請確認這裡還是你的 ID
-SHEET_ID = '1F5bK-C2O7w7z... (請換回你的真實ID)' 
+SHEET_ID = '1oa6qhkVlCxM0gK6JNgcXwlPv6XfQK0ExcjApmwOzNhw' 
 
 def connect_google_sheet():
     """連線到 Google Sheets"""
