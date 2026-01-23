@@ -5,25 +5,25 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩控制台] 改這裡，顏色一定會變！
+# 🎨 [色彩與 Logo 設定] 改這裡！
 # ==========================================
-# 1. 網頁背景 (推薦淺灰 F1F5F9 或純白 FFFFFF)
-PAGE_BG = "#F8F9FA"
+# 1. 你的 LOGO 圖片連結 (請換成你自己的)
+# 如果沒有圖片，暫時用這個預設圖
+LOGO_URL = "https://drive.google.com/file/d/1VeP-Dxdh6krNGThN9_cRNHGPHIv9-93z/view?usp=sharing" 
 
-# 2. 頂部導覽列 (黑色膠囊)
-NAV_BG = "#E89B00"       # 背景色 (深灰)
-NAV_TEXT = "#FFFFFF"     # 文字色 (白)
+# 2. 導覽列設定
+NAV_BACKGROUND = "#E89B00  # 導覽列背景色 (參考圖是白色)
+NAV_TEXT_COLOR = "#333333"  # 文字顏色 (深灰)
 
-# 3. 內容卡片 (顯示器材/數據的地方)
-CARD_BG = "#FFFFFF"      # 背景色 (白)
-CARD_BORDER = "#E5E7EB"  # 邊框色 (淺灰)
+# 3. 網頁背景
+PAGE_BACKGROUND = "#F8F9FA" # 淺灰底，凸顯白色的導覽列
 
-# 4. 狀態標籤顏色 (背景色, 文字色)
+# 4. 狀態標籤顏色
 STATUS_COLORS = {
-    "在庫":   {"bg": "#E6F4EA", "text": "#137333"}, # 綠
-    "借出中": {"bg": "#FCE8E6", "text": "#C5221F"}, # 紅
-    "維修中": {"bg": "#FEF7E0", "text": "#B06000"}, # 黃
-    "報廢":   {"bg": "#F1F3F4", "text": "#5F6368"}  # 灰
+    "在庫":   {"bg": "#E6F4EA", "text": "#137333"},
+    "借出中": {"bg": "#FCE8E6", "text": "#C5221F"},
+    "維修中": {"bg": "#FEF7E0", "text": "#B06000"},
+    "報廢":   {"bg": "#F1F3F4", "text": "#5F6368"}
 }
 # ==========================================
 
@@ -66,70 +66,68 @@ def delete_equipment_from_db(uid): supabase.table("equipment").delete().eq("uid"
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 🛠️ CSS 強制注入 (使用 !important 覆蓋預設值)
+# 🛠️ CSS 樣式表 (Header 專用修復版)
 # ==========================================
 st.markdown(f"""
 <style>
-    /* 1. 隱藏預設 Header */
+    /* 1. 隱藏 Streamlit 預設 Header */
     header[data-testid="stHeader"] {{ display: none; }}
 
-    /* 2. 強制設定全頁背景顏色 */
+    /* 2. 網頁背景 */
     .stApp, div[data-testid="stAppViewContainer"] {{
-        background-color: {PAGE_BG} !important;
+        background-color: {PAGE_BACKGROUND} !important;
     }}
 
-    /* 3. 置頂導覽列樣式 (Sticky Header) */
-    /* 我們稍後會在 HTML 裡埋入一個 id="sticky-header" */
-    /* CSS 選擇器：找到包含 #sticky-header 的父層容器 */
-    div[data-testid="stVerticalBlock"]:has(#sticky-header) {{
+    /* 3. ✨ 置頂導覽列 (Sticky Navbar) ✨ */
+    /* 這次我們鎖定包含 'navbar-container' class 的區塊 */
+    div[data-testid="stVerticalBlock"]:has(.navbar-marker) {{
         position: sticky;
-        top: 10px;
-        z-index: 9999;
-        background-color: {NAV_BG} !important;
-        color: {NAV_TEXT} !important;
-        border-radius: 50px;
-        padding: 15px 25px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        margin-bottom: 30px;
-        border: 1px solid rgba(255,255,255,0.1);
+        top: 0;
+        z-index: 99999;
+        background-color: {NAV_BACKGROUND} !important;
+        
+        /* 像你的參考圖一樣，加一點陰影 */
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        border-bottom: 1px solid #E5E7EB;
+        
+        /* 調整內距，讓它看起來像個 Header */
+        padding: 10px 20px;
+        margin-top: -60px; /* 把原本 Streamlit 上方的空白抵銷掉 */
     }}
 
-    /* 強制讓導覽列裡的文字變色 */
-    div[data-testid="stVerticalBlock"]:has(#sticky-header) h3,
-    div[data-testid="stVerticalBlock"]:has(#sticky-header) span,
-    div[data-testid="stVerticalBlock"]:has(#sticky-header) p {{
-        color: {NAV_TEXT} !important;
-    }}
-
-    /* 4. 一般內容卡片 (Card) */
-    /* 選擇器：針對有 .custom-card 標記的容器 */
+    /* 4. 一般卡片 (內容區) */
     div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: {CARD_BG} !important;
-        border: 1px solid {CARD_BORDER} !important;
-        border-radius: 16px !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02) !important;
-        padding: 20px !important;
+        background-color: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }}
 
-    /* 5. 按鈕樣式 (加強高度，好按) */
+    /* 5. 按鈕樣式 (仿照你的參考圖，圓角大一點) */
     .stButton > button {{
-        height: 48px !important;
-        border-radius: 10px !important;
-        font-weight: bold !important;
+        border-radius: 50px !important; /* 膠囊形狀 */
+        height: 40px !important;
+        font-weight: 600 !important;
+        border: 1px solid #ddd !important;
+        background-color: white !important;
+        color: #333 !important;
+    }}
+    /* 主要按鈕 (紅色/橘色) */
+    .stButton > button[kind="primary"] {{
+        background-color: #E85D04 !important; /* 類似你圖中的橘紅色 */
+        color: white !important;
         border: none !important;
     }}
 
-    /* 6. 手機版面修復 (避免縮小) */
+    /* 6. 手機版優化 */
     @media (max-width: 640px) {{
-        /* 讓導覽列貼頂，變成長方形 */
-        div[data-testid="stVerticalBlock"]:has(#sticky-header) {{
-            top: 0 !important;
-            border-radius: 0 0 15px 15px !important;
-            margin: 0 -1rem 20px -1rem !important; /* 拉寬填滿 */
-            padding: 15px !important;
-        }}
-        /* 避免圖片撐開版面 */
+        /* 讓圖片不要太大 */
         img {{ max-width: 100% !important; }}
+        /* 導覽列在手機上緊貼兩側 */
+        div[data-testid="stVerticalBlock"]:has(.navbar-marker) {{
+            padding: 10px 10px;
+        }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -148,29 +146,36 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# 組件：置頂導覽列 (純淨版，無 border=True)
+# ✨ 導覽列組件 (Logo + Menu)
 # ==========================================
 def render_navbar():
-    # 這裡不要用 border=True，避免產生黑框
-    # 我們用 CSS 的 :has(#sticky-header) 來幫它上色
+    # 這裡使用普通的 container，但塞入一個標記讓 CSS 抓
     with st.container():
-        # 這是一個隱形鉤子，用來讓 CSS 抓到這個區塊
-        st.markdown('<div id="sticky-header"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="navbar-marker"></div>', unsafe_allow_html=True)
         
-        c1, c2 = st.columns([3, 2], vertical_alignment="center")
-        with c1:
-            st.markdown("### 📦 團隊器材中心")
-        with c2:
-            if st.session_state.is_admin:
-                b1, b2 = st.columns(2)
-                b1.button("➕ 新增", on_click=show_add_modal, use_container_width=True, type="secondary")
-                b2.button("登出", on_click=perform_logout, use_container_width=True, type="primary")
-            else:
-                _, b_log = st.columns([1, 2])
-                b_log.button("🔐 管理員登入", on_click=lambda: go_to("login"), use_container_width=True)
+        # 左右佈局：左邊 Logo，右邊選單
+        # vertical_alignment="center" 讓 Logo 跟按鈕垂直置中對齊
+        col_logo, col_menu = st.columns([1, 3], vertical_alignment="center")
+        
+        with col_logo:
+            # 🔥 這裡顯示你的 LOGO！
+            # width=150 可以調整 Logo 大小
+            st.image(LOGO_URL, width=150) 
+            
+        with col_menu:
+            # 使用 columns 把按鈕推到最右邊 (透過空的 col)
+            _, buttons = st.columns([4, 2]) 
+            
+            with buttons:
+                if st.session_state.is_admin:
+                    b1, b2 = st.columns(2)
+                    b1.button("➕ 新增器材", on_click=show_add_modal, use_container_width=True)
+                    b2.button("登出", on_click=perform_logout, type="primary", use_container_width=True)
+                else:
+                    st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
 
 # ==========================================
-# 組件：新增視窗
+# 彈窗：新增器材
 # ==========================================
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -197,13 +202,16 @@ def show_add_modal():
 # 頁面：主控台
 # ==========================================
 def main_page():
-    render_navbar() # 顯示置頂導覽列
+    render_navbar() # 顯示置頂 Header
+    
+    # 為了不被 Header 擋住，加一點留白
+    st.write("") 
+    
     df = load_data()
     
-    # 儀表板 (使用 container(border=True) 產生卡片，CSS 會負責美化它)
+    # 儀表板
     if not df.empty:
         total = len(df); avail = len(df[df['status']=='在庫'])
-        st.write("")
         m1, m2, m3, m4 = st.columns(4)
         with m1: 
             with st.container(border=True): st.metric("📦 總數", total)
@@ -214,10 +222,10 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # 搜尋區 (卡片化)
+    # 搜尋區
     st.write("")
     with st.container(border=True):
-        search = st.text_input("🔍 搜尋", placeholder="輸入關鍵字...", label_visibility="collapsed")
+        search = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字...", label_visibility="collapsed")
 
     # 列表區
     if not df.empty:
@@ -226,16 +234,15 @@ def main_page():
         cols = st.columns(3)
         for i, row in res.iterrows():
             with cols[i%3]:
-                # 這裡的 border=True 會被 CSS 抓到，並套用 CARD_BG 顏色
                 with st.container(border=True):
-                    # 圖片固定高度
+                    # 圖片區
                     img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                     st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:8px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:10px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                     
                     st.markdown(f"#### {row['name']}")
                     st.caption(f"#{row['uid']} | 📍 {row['location']}")
                     
-                    # 狀態標籤 (使用上面的變數)
+                    # 狀態標籤
                     style = STATUS_COLORS.get(row['status'], {"bg": "#eee", "text": "#000"})
                     st.markdown(f'<span style="background:{style["bg"]}; color:{style["text"]}; padding:4px 10px; border-radius:12px; font-weight:bold; font-size:12px">● {row['status']}</span>', unsafe_allow_html=True)
 
@@ -260,6 +267,7 @@ def login_page():
     render_navbar()
     _, c, _ = st.columns([1,5,1])
     with c:
+        st.write("")
         st.write("")
         with st.container(border=True):
             st.markdown("<h2 style='text-align:center'>🔐 管理員登入</h2>", unsafe_allow_html=True)
