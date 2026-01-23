@@ -5,14 +5,12 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩控制台] 請在這裡調整！
+# 🎨 [色彩控制台]
 # ==========================================
 
-# 1. 導覽列 (Header) 設定 - [仿蝦皮風格]
-# 這裡改成橘色看看效果，或者你可以改回白色 #FFFFFF
-NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘 (你可以改成 #FFFFFF)
-NAV_TEXT_COLOR = "#FFFFFF"     # 文字顏色 (白)
-NAV_HEIGHT = "70px"            # 導覽列高度
+# 1. 導覽列 (Top Bar) 設定 - [只放 Logo]
+NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘
+NAV_HEIGHT = "60px"            # 導覽列高度
 
 # 2. 網頁大背景
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
@@ -21,7 +19,7 @@ PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 CARD_BG_COLOR = "#FFFFFF"
 CARD_BORDER_COLOR = "#E0E0E0"
 
-# 4. LOGO
+# 4. LOGO (建議用橫式的圖，或者單純圖示)
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
 
 # 5. 狀態顏色
@@ -72,7 +70,7 @@ def delete_equipment_from_db(uid): supabase.table("equipment").delete().eq("uid"
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 🛠️ CSS 核心工程 (蝦皮架構版)
+# 🛠️ CSS 核心工程 (純裝飾 Header 版)
 # ==========================================
 st.markdown(f"""
 <style>
@@ -84,36 +82,31 @@ st.markdown(f"""
         background-color: {PAGE_BG_COLOR} !important;
     }}
 
-    /* 3. 【關鍵】內容補償 (Padding)
-       我們強迫主內容區域往下退 90px，
-       這樣第一排內容才不會被你的 Header 擋住！
+    /* 3. 內容補償 (Padding)
+       因為上面有 60px 的 Header，我們要把內容往下推 80px
+       這樣標題才不會被橘色Bar擋住
     */
     .main .block-container {{
-        padding-top: 90px !important;
-        padding-bottom: 50px !important;
+        padding-top: 80px !important;
         max-width: 1200px !important;
     }}
 
-    /* 4. ✨ [自定義導覽列] CSS ✨ 
-       我們不依賴 Streamlit 的容器，而是直接用 CSS 創造一個固定層
-       這裡的 #my-custom-header 會對應到下面 HTML 裡的 ID
+    /* 4. ✨ [純裝飾導覽列] CSS ✨ 
+       這是一個純 HTML/CSS 的區塊，只負責顯示橘色背景和 Logo
     */
-    #my-custom-header {{
-        position: fixed;       /* 釘死在視窗上 */
+    #my-deco-header {{
+        position: fixed;
         top: 0;
         left: 0;
         width: 100%;
         height: {NAV_HEIGHT};
         background-color: {NAV_BG_COLOR};
-        z-index: 9999999;      /* 確保在最上層，比 Streamlit 的任何東西都高 */
+        z-index: 9999999;
         
-        display: flex;         /* 彈性排版 */
-        align_items: center;   /* 垂直置中 */
-        justify-content: space-between; /* 左右推開 */
-        padding: 0 2rem;       /* 左右內距 */
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        color: {NAV_TEXT_COLOR};
-        border-bottom: 1px solid rgba(0,0,0,0.05);
+        display: flex;
+        align_items: center; /* 垂直置中 */
+        padding-left: 20px;  /* Logo 距離左邊的距離 */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }}
 
     /* 5. 內容卡片樣式 */
@@ -125,25 +118,25 @@ st.markdown(f"""
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }}
 
-    /* 6. 按鈕樣式 */
+    /* 6. 按鈕樣式 (一般按鈕) */
     .stButton > button {{
-        border-radius: 4px !important;
-        height: 40px !important;
+        border-radius: 6px !important;
+        height: 42px !important;
         font-weight: 500 !important;
         border: 1px solid #ddd !important;
         background-color: #fff;
         color: #333;
     }}
-    /* 主要按鈕 (橘色/紅色) */
+    
+    /* 7. 主要按鈕 (登入/刪除 - 紅橘色系) */
     .stButton > button[kind="primary"] {{
-        background-color: #EE4D2D !important; /* 蝦皮橘 */
+        background-color: {NAV_BG_COLOR} !important; /* 跟導覽列同色 */
         color: white !important;
         border: none !important;
     }}
     
-    /* 7. 手機版優化 */
+    /* 8. 手機版圖片限制 */
     @media (max-width: 640px) {{
-        #my-custom-header {{ padding: 0 1rem; }}
         img {{ max-width: 100% !important; }}
     }}
 </style>
@@ -163,55 +156,16 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# ✨ 導覽列組件 (HTML Injection)
+# ✨ 純裝飾 Header (只放圖)
 # ==========================================
-def render_navbar():
-    # 這次我們不只用 container，而是直接插入一段 HTML 結構
-    # 這段 HTML 會被上面的 CSS #my-custom-header 抓去變成 Header
-    
-    # 這裡我們用一個技巧：雖然 HTML 渲染出來了，但按鈕的互動還是需要 Streamlit
-    # 所以我們用一個隱形的 container 來佔位，把按鈕放在裡面
-    # 但視覺上我們用 CSS 把它「搬」到 Header 的位置 (這比較複雜，我們換個簡單的)
-    
-    # 修正策略：我們還是用 Streamlit 的容器，但用 CSS 強制把它變成 Header
-    # 這是最穩定的做法，可以同時保有互動性
-    
-    with st.container():
-        # 這個空的 div 是為了讓 CSS 抓到這裡，把整個 container 變成 Header
-        st.markdown(f'<div id="my-custom-header"></div>', unsafe_allow_html=True)
-        
-        # ⚠️ 注意：因為 CSS 把這個 container 設為 fixed，它會浮起來
-        # 這裡面的內容會自動變成 Header 的內容
-        
-        # 我們需要手動調整這裡的排版，因為 st.columns 在 fixed container 裡有時候會怪怪的
-        # 但為了按鈕功能，我們還是得用 columns
-        
-        c1, c2 = st.columns([1, 1], vertical_alignment="center")
-        
-        with c1:
-            # 這裡因為 CSS 設了 color，所以文字會自動變色
-            # 我們用 HTML 來控制 Logo 和標題的排版，比較漂亮
-            st.markdown(f"""
-            <div style="display:flex; align-items:center; gap:10px; height: {NAV_HEIGHT};">
-                <img src="{LOGO_URL}" style="height: 35px;">
-                <h3 style="margin:0; padding:0; color:inherit; font-size:1.2rem; white-space:nowrap;">團隊器材中心</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with c2:
-            # 按鈕區 (靠右)
-            # 因為這是在 Fixed Header 裡，我們需要把這區塊往右推
-            # 這裡用一個空的 column 來佔位是不夠的，我們直接在 columns 裡操作
-            
-            # 使用 CSS hack 讓這一塊浮動到右邊
-            st.markdown('<style>div[data-testid="column"]:nth-of-type(2) { display: flex; justify-content: flex-end; }</style>', unsafe_allow_html=True)
-            
-            if st.session_state.is_admin:
-                b1, b2 = st.columns(2, gap="small")
-                b1.button("➕ 新增", on_click=show_add_modal)
-                b2.button("登出", on_click=perform_logout, type="primary")
-            else:
-                st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary")
+def render_deco_header():
+    # 直接注入 HTML，不使用 Streamlit 容器
+    # 這樣它就是一個單純的、不會動的、純視覺的頂部 Bar
+    st.markdown(f"""
+    <div id="my-deco-header">
+        <img src="{LOGO_URL}" style="height: 36px;">
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==========================================
 # 彈窗：新增器材
@@ -241,12 +195,27 @@ def show_add_modal():
 # 頁面：主控台
 # ==========================================
 def main_page():
-    # 1. 渲染導覽列 (它會自動飛到最上面變成 Header)
-    render_navbar()
+    # 1. 顯示純裝飾 Header (橘色那條)
+    render_deco_header()
     
-    # 2. 內容開始
-    # CSS 已經設定了 padding-top: 90px，所以這裡不用擔心被擋住
+    # 2. 標題與操作區 (回到白色內容區)
+    # 使用 columns 把標題放左邊，按鈕放右邊
+    c_title, c_actions = st.columns([3, 1], vertical_alignment="center")
     
+    with c_title:
+        # 頁面標題
+        st.title("團隊器材中心")
+        
+    with c_actions:
+        # 這裡就是「原本的地方」 (內容區的右上角)
+        if st.session_state.is_admin:
+            b1, b2 = st.columns(2, gap="small")
+            b1.button("➕ 新增", on_click=show_add_modal, use_container_width=True)
+            b2.button("登出", on_click=perform_logout, type="primary", use_container_width=True)
+        else:
+            # 登入按鈕
+            st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
+
     df = load_data()
     
     # 儀表板
@@ -304,7 +273,7 @@ def main_page():
 # 頁面：登入
 # ==========================================
 def login_page():
-    render_navbar()
+    render_deco_header()
     
     _, c, _ = st.columns([1,5,1])
     with c:
