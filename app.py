@@ -82,7 +82,7 @@ st.markdown(f"""
         /* 🔥 垂直置中魔法 */
         display: flex;
         align-items: center;   /* 上下置中 */
-        padding-left: 70px;    /* Logo 離左邊多遠 */
+        padding-left: 30px;    /* Logo 離左邊多遠 */
     }}
 
     /* 5. 卡片與按鈕美化 */
@@ -244,6 +244,7 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
 
