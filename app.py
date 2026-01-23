@@ -67,7 +67,7 @@ st.markdown("""
         
         /* 👇 [調整點 2] 這裡是「導覽列」的背景顏色 */
         /* #2D3436 是深灰色，你可以改成任何你喜歡的顏色 */
-        background-color: #E89B00; 
+        background-color: #000000; 
         
         border-radius: 50px;
         padding: 10px 20px;
@@ -253,4 +253,5 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
