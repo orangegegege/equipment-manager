@@ -7,10 +7,10 @@ import time
 # ==========================================
 # 🎨 [基本設定]
 # ==========================================
-NAV_HEIGHT = "60px"            # 導覽列高度
+NAV_HEIGHT = "90px"            # 導覽列高度
 NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
-LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png" # 你的 Logo
+LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png" # 你的 Logo
 
 # --- 1. Supabase 連線 ---
 @st.cache_resource
@@ -61,7 +61,7 @@ st.markdown(f"""
     /* 2. 背景顏色 */
     .stApp {{ background-color: {PAGE_BG_COLOR} !important; }}
 
-    /* 3. 🔥【防擋牆】強制把內容往下推 100px */
+    /* 3. 🔥【防擋牆】強制把內容往下推 40px */
     /* 這行最重要！它保證了你的標題和按鈕不會鑽到橘色條下面 */
     .main .block-container {{
         padding-top: 100px !important; 
@@ -244,3 +244,4 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
