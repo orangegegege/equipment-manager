@@ -12,7 +12,7 @@ import time
 LOGO_URL = "https://drive.google.com/file/d/1VeP-Dxdh6krNGThN9_cRNHGPHIv9-93z/view?usp=sharing" 
 
 # 2. 導覽列設定
-NAV_BACKGROUND = "#E89B00  # 導覽列背景色 (參考圖是白色)
+NAV_BACKGROUND = "#E89B00"  # 導覽列背景色 (參考圖是白色)
 NAV_TEXT_COLOR = "#333333"  # 文字顏色 (深灰)
 
 # 3. 網頁背景
@@ -278,3 +278,4 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
