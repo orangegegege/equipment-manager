@@ -245,7 +245,7 @@ def main_page():
                         # 意思是：高度強制 200px，寬度填滿，多餘的部分「裁切掉」(不會變形)
                         st.markdown(
                             f"""
-                            <div style="width:100%; height:200px; overflow:hidden; border-radius:12px; margin-bottom:14px; background-color:#f0f2f6; display:flex; align-items:center; justify-content:center;">
+                            <div style="width:100%; height:300px; overflow:hidden; border-radius:12px; margin-bottom:14px; background-color:#f0f2f6; display:flex; align-items:center; justify-content:center;">
                                 <img src="{img_link}" style="width:100%; height:100%; object-fit: cover;">
                             </div>
                             """, 
@@ -302,3 +302,4 @@ if st.session_state.current_page == "login":
     login_page()
 else:
     main_page()
+
