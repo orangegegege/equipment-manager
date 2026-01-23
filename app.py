@@ -59,12 +59,12 @@ st.markdown("""
 <style>
     /* 1. 全域背景 */
     .stApp {
-        background-color: #F1F5F9;
+        background-color: #FFFFFF;
     }
 
     /* 2. 核心卡片樣式 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: #E89B00;
+        background-color: #FFFFFF;
         border-radius: 16px;
         border: 1px solid #E2E8F0;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
@@ -302,6 +302,7 @@ if st.session_state.current_page == "login":
     login_page()
 else:
     main_page()
+
 
 
 
