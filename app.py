@@ -9,7 +9,7 @@ import time
 # ==========================================
 
 # 1. 導覽列 (Top Bar) 設定 - [只放 Logo]
-NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘
+NAV_BG_COLOR = "#E89B00"       # 蝦皮橘
 NAV_HEIGHT = "60px"            # 導覽列高度
 
 # 2. 網頁大背景
@@ -286,3 +286,4 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
