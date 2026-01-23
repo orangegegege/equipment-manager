@@ -61,7 +61,7 @@ st.markdown(f"""
     /* 2. 背景顏色 */
     .stApp {{ background-color: {PAGE_BG_COLOR} !important; }}
 
-    /* 3. 🔥【防擋牆】強制把內容往下推 40px */
+    /* 3. 🔥【防擋牆】強制把內容往下推 20px */
     /* 這行最重要！它保證了你的標題和按鈕不會鑽到橘色條下面 */
     .main .block-container {{
         padding-top: 100px !important; 
@@ -82,7 +82,7 @@ st.markdown(f"""
         /* 🔥 垂直置中魔法 */
         display: flex;
         align-items: center;   /* 上下置中 */
-        padding-left: 30px;    /* Logo 離左邊多遠 */
+        padding-left: 70px;    /* Logo 離左邊多遠 */
     }}
 
     /* 5. 卡片與按鈕美化 */
@@ -244,4 +244,5 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
