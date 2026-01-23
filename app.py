@@ -5,20 +5,26 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩與 Logo 設定] 改這裡！
+# 🎨 [色彩與 Logo 控制台] 請在這裡調整！
 # ==========================================
+
 # 1. 你的 LOGO 圖片連結 (請換成你自己的)
-# 如果沒有圖片，暫時用這個預設圖
-LOGO_URL = "https://drive.google.com/file/d/1VeP-Dxdh6krNGThN9_cRNHGPHIv9-93z/view?usp=sharing" 
+# ⚠️ 注意：如果圖片跑不出來，代表網址錯誤。請用瀏覽器可以直接打開圖片的網址。
+LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png" 
 
-# 2. 導覽列設定
-NAV_BACKGROUND = "#F8F9FA"  # 導覽列背景色 (參考圖是白色)
-NAV_TEXT_COLOR = "#333333"  # 文字顏色 (深灰)
+# 2. 導覽列 (Header) 配色 - [獨立控制]
+NAV_BG_COLOR = "#FFFFFF"      # 導覽列背景色 (白)
+NAV_TEXT_COLOR = "#333333"    # 導覽列文字色 (深灰)
+NAV_BORDER_COLOR = "#E5E7EB"  # 導覽列下緣邊框線
 
-# 3. 網頁背景
-PAGE_BACKGROUND = "#F8F9FA" # 淺灰底，凸顯白色的導覽列
+# 3. 內容卡片 (Card) 配色 - [獨立控制]
+CARD_BG_COLOR = "#FFFFFF"     # 卡片背景色 (白)
+CARD_BORDER_COLOR = "#E5E7EB" # 卡片邊框色 (淺灰)
 
-# 4. 狀態標籤顏色
+# 4. 網頁大背景
+PAGE_BG_COLOR = "#F8F9FA"     # 淺灰底
+
+# 5. 狀態標籤顏色
 STATUS_COLORS = {
     "在庫":   {"bg": "#E6F4EA", "text": "#137333"},
     "借出中": {"bg": "#FCE8E6", "text": "#C5221F"},
@@ -66,68 +72,80 @@ def delete_equipment_from_db(uid): supabase.table("equipment").delete().eq("uid"
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 🛠️ CSS 樣式表 (Header 專用修復版)
+# 🛠️ CSS 樣式表 (絕對隔離版)
 # ==========================================
 st.markdown(f"""
 <style>
-    /* 1. 隱藏 Streamlit 預設 Header */
+    /* 1. 隱藏預設 Header */
     header[data-testid="stHeader"] {{ display: none; }}
 
-    /* 2. 網頁背景 */
+    /* 2. 網頁大背景 */
     .stApp, div[data-testid="stAppViewContainer"] {{
-        background-color: {PAGE_BACKGROUND} !important;
+        background-color: {PAGE_BG_COLOR} !important;
     }}
 
-    /* 3. ✨ 置頂導覽列 (Sticky Navbar) ✨ */
-    /* 這次我們鎖定包含 'navbar-container' class 的區塊 */
+    /* 3. ✨ [導覽列] 專屬樣式 (Fixed Positioning) ✨ */
+    /* 針對包含 .navbar-marker 的容器 */
     div[data-testid="stVerticalBlock"]:has(.navbar-marker) {{
-        position: sticky;
+        position: fixed !important;  /* 🔥 強制固定在視窗位置 */
         top: 0;
-        z-index: 99999;
-        background-color: {NAV_BACKGROUND} !important;
-        
-        /* 像你的參考圖一樣，加一點陰影 */
+        left: 0;
+        width: 100%;
+        z-index: 999999; /* 確保在最上層 */
+        background-color: {NAV_BG_COLOR} !important;
+        border-bottom: 1px solid {NAV_BORDER_COLOR};
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-        border-bottom: 1px solid #E5E7EB;
-        
-        /* 調整內距，讓它看起來像個 Header */
-        padding: 10px 20px;
-        margin-top: -60px; /* 把原本 Streamlit 上方的空白抵銷掉 */
+        padding: 1rem 2rem; /* 上下左右內距 */
+        margin: 0;
     }}
 
-    /* 4. 一般卡片 (內容區) */
-    div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        border-radius: 12px;
-        padding: 20px;
+    /* 解決「標題被吃掉」的問題：把主內容往下推 */
+    div[data-testid="stAppViewContainer"] > section:first-child {{
+        padding-top: 100px !important; /* 🔥 預留空間給 Header */
+    }}
+
+    /* 導覽列文字顏色 */
+    div[data-testid="stVerticalBlock"]:has(.navbar-marker) h1,
+    div[data-testid="stVerticalBlock"]:has(.navbar-marker) h2,
+    div[data-testid="stVerticalBlock"]:has(.navbar-marker) h3,
+    div[data-testid="stVerticalBlock"]:has(.navbar-marker) p,
+    div[data-testid="stVerticalBlock"]:has(.navbar-marker) span {{
+        color: {NAV_TEXT_COLOR} !important;
+    }}
+
+    /* 4. ✨ [內容卡片] 專屬樣式 ✨ */
+    /* 針對包含 borderWrapper 且 *沒有* navbar-marker 的容器 */
+    div[data-testid="stVerticalBlockBorderWrapper"]:not(:has(.navbar-marker)) {{
+        background-color: {CARD_BG_COLOR} !important;
+        border: 1px solid {CARD_BORDER_COLOR} !important;
+        border-radius: 12px !important;
+        padding: 20px !important;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        margin-bottom: 16px;
     }}
 
-    /* 5. 按鈕樣式 (仿照你的參考圖，圓角大一點) */
+    /* 5. 按鈕樣式 (膠囊狀) */
     .stButton > button {{
-        border-radius: 50px !important; /* 膠囊形狀 */
-        height: 40px !important;
+        border-radius: 50px !important;
+        height: 42px !important;
         font-weight: 600 !important;
         border: 1px solid #ddd !important;
-        background-color: white !important;
-        color: #333 !important;
     }}
-    /* 主要按鈕 (紅色/橘色) */
+    /* 主要按鈕 (橘紅色) */
     .stButton > button[kind="primary"] {{
-        background-color: #E85D04 !important; /* 類似你圖中的橘紅色 */
+        background-color: #E85D04 !important;
         color: white !important;
         border: none !important;
     }}
 
     /* 6. 手機版優化 */
     @media (max-width: 640px) {{
-        /* 讓圖片不要太大 */
-        img {{ max-width: 100% !important; }}
-        /* 導覽列在手機上緊貼兩側 */
+        /* 導覽列在手機上左右貼滿 */
         div[data-testid="stVerticalBlock"]:has(.navbar-marker) {{
-            padding: 10px 10px;
+            padding: 10px 15px;
         }}
+        /* Logo 大小限制 */
+        img {{ max-width: 100% !important; }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -146,30 +164,34 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# ✨ 導覽列組件 (Logo + Menu)
+# ✨ 導覽列組件 (Fixed Header)
 # ==========================================
 def render_navbar():
-    # 這裡使用普通的 container，但塞入一個標記讓 CSS 抓
+    # 使用 container，但不加 border=True (避免黑框)
+    # 我們完全靠 CSS 的 .navbar-marker 來抓這個區塊
     with st.container():
         st.markdown('<div class="navbar-marker"></div>', unsafe_allow_html=True)
         
-        # 左右佈局：左邊 Logo，右邊選單
-        # vertical_alignment="center" 讓 Logo 跟按鈕垂直置中對齊
-        col_logo, col_menu = st.columns([1, 3], vertical_alignment="center")
+        # 導覽列內容：左 Logo/標題，右按鈕
+        c_brand, c_menu = st.columns([2, 2], vertical_alignment="center")
         
-        with col_logo:
-            # 🔥 這裡顯示你的 LOGO！
-            # width=150 可以調整 Logo 大小
-            st.image(LOGO_URL, width=150) 
+        with c_brand:
+            # 左邊：Logo + 標題文字
+            sub_c1, sub_c2 = st.columns([1, 4], vertical_alignment="center")
+            with sub_c1:
+                # 這裡顯示 Logo
+                st.image(LOGO_URL, width=50) 
+            with sub_c2:
+                # 這裡顯示被吃掉的標題 (現在它住在 Header 裡了！)
+                st.markdown(f"<h3 style='margin:0; padding:0; color:{NAV_TEXT_COLOR}; white-space:nowrap;'>團隊器材中心</h3>", unsafe_allow_html=True)
             
-        with col_menu:
-            # 使用 columns 把按鈕推到最右邊 (透過空的 col)
-            _, buttons = st.columns([4, 2]) 
-            
+        with c_menu:
+            # 右邊：按鈕 (靠右對齊)
+            _, buttons = st.columns([1, 3]) 
             with buttons:
                 if st.session_state.is_admin:
                     b1, b2 = st.columns(2)
-                    b1.button("➕ 新增器材", on_click=show_add_modal, use_container_width=True)
+                    b1.button("➕ 新增", on_click=show_add_modal, use_container_width=True)
                     b2.button("登出", on_click=perform_logout, type="primary", use_container_width=True)
                 else:
                     st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
@@ -202,10 +224,7 @@ def show_add_modal():
 # 頁面：主控台
 # ==========================================
 def main_page():
-    render_navbar() # 顯示置頂 Header
-    
-    # 為了不被 Header 擋住，加一點留白
-    st.write("") 
+    render_navbar() # 顯示固定置頂的 Header
     
     df = load_data()
     
@@ -278,5 +297,3 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
-
-
