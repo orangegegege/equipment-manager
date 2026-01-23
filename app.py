@@ -53,36 +53,34 @@ def delete_equipment_from_db(uid):
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 🎨 UI/UX 工程：純正的 Card UI 風格
+# 🎨 UI/UX 工程：Card UI + 圖片統一修正
 # ==========================================
 st.markdown("""
 <style>
-    /* 1. 全域背景：淺灰藍色，像現代 SaaS 軟體的背景 */
+    /* 1. 全域背景 */
     .stApp {
         background-color: #F1F5F9;
     }
 
-    /* 2. 核心卡片樣式：讓 st.container(border=True) 變成漂亮的白色卡片 */
+    /* 2. 核心卡片樣式 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #FFFFFF;
-        border-radius: 16px; /* 更圓潤的邊角 */
-        border: 1px solid #E2E8F0; /* 很淡的邊框 */
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); /* 懸浮感陰影 */
+        border-radius: 16px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
         padding: 24px;
         margin-bottom: 16px;
     }
 
-    /* 3. 按鈕美化：厚實、好點擊 */
+    /* 3. 按鈕美化 */
     .stButton > button {
         border-radius: 10px;
-        height: 48px; /* 加高按鈕，手機好按 */
+        height: 48px;
         font-weight: 600;
         font-size: 16px;
         border: none;
         transition: all 0.2s ease;
     }
-    
-    /* 滑鼠懸停效果 */
     .stButton > button:hover {
         transform: translateY(-1px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
@@ -94,26 +92,16 @@ st.markdown("""
         height: 45px;
     }
 
-    /* 5. 標題文字顏色 */
+    /* 5. 標題優化 */
     h1, h2, h3 {
         color: #1E293B;
         font-family: system-ui, -apple-system, sans-serif;
     }
 
-    /* 6. 圖片圓角 */
-    img {
-        border-radius: 12px;
-    }
-    
-    /* 7. 針對手機的優化 (不強制排版，而是調整間距) */
+    /* 6. 手機版優化 */
     @media (max-width: 640px) {
-        .stApp {
-            padding-top: 20px;
-        }
-        /* 讓手機上的卡片內距小一點，爭取空間 */
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            padding: 16px;
-        }
+        .stApp { padding-top: 20px; }
+        div[data-testid="stVerticalBlockBorderWrapper"] { padding: 16px; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -136,16 +124,15 @@ def perform_login():
         st.error("密碼錯誤 ❌")
 
 # ==========================================
-#  彈出視窗：新增器材 (RWD)
+#  彈出視窗：新增器材
 # ==========================================
-@st.dialog("➕ 新增器材", width="small") # width="small" 讓手機版視窗更合適
+@st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
     st.caption("請填寫器材詳細資訊")
     with st.form("add_form", clear_on_submit=True):
         new_name = st.text_input("器材名稱", placeholder="例如：Sony A7M4")
         new_uid = st.text_input("器材編號", placeholder="例如：CAM-01")
         
-        # 使用 columns，電腦版左右排，手機版會自動變成上下排 (這是正確的 RWD)
         c1, c2 = st.columns(2)
         new_cat = c1.selectbox("分類", ["攝影器材", "燈光音響", "線材耗材", "電腦週邊", "其他"])
         new_status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"])
@@ -176,61 +163,44 @@ def show_add_modal():
                 st.error("名稱與編號為必填！")
 
 # ==========================================
-#  頁面 1：登入頁 (置中卡片)
+#  頁面 1：登入頁
 # ==========================================
 def login_page():
-    # 使用 columns 做佈局，手機會自動適應
     _, center_col, _ = st.columns([1, 6, 1])
-    
     with center_col:
-        st.write("") # 上方留白
         st.write("")
-        
-        # 🟦 登入卡片
+        st.write("")
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center;'>🔐 管理員登入</h2>", unsafe_allow_html=True)
             st.markdown("---")
-            
             st.text_input("請輸入密碼", type="password", key="password_input")
             st.caption("僅限幹部與管理人員登入")
-            
-            st.write("") # 間距
-            
-            # 這裡我們不強制並排，讓手機自然堆疊，這樣按鈕比較大，好按
-            # 如果電腦上想並排，Streamlit 會自動處理
+            st.write("")
             b1, b2 = st.columns(2)
-            with b1: 
-                st.button("返回首頁", on_click=go_to_home, use_container_width=True)
-            with b2: 
-                st.button("登入系統", type="primary", on_click=perform_login, use_container_width=True)
+            with b1: st.button("返回首頁", on_click=go_to_home, use_container_width=True)
+            with b2: st.button("登入系統", type="primary", on_click=perform_login, use_container_width=True)
 
 # ==========================================
-#  頁面 2：主控台 (儀表板 + 列表)
+#  頁面 2：主控台
 # ==========================================
 def main_page():
     with st.spinner('同步資料中...'):
         df = load_data()
     
-    # --- 頂部導覽列 ---
-    # 利用 columns，電腦版左右分開，手機版自動堆疊
+    # --- 導覽列 ---
     c_title, c_act = st.columns([2, 1]) 
-    
-    with c_title:
-        st.title("📦 器材管理系統")
-    
+    with c_title: st.title("📦 器材管理系統")
     with c_act:
         if st.session_state.is_admin:
-            # 登入後顯示功能區塊
             with st.container(border=True):
                 st.caption(f"目前身分：管理員")
                 ac1, ac2 = st.columns(2)
                 ac1.button("➕ 新增", on_click=show_add_modal, use_container_width=True)
                 ac2.button("登出", on_click=perform_logout, use_container_width=True)
         else:
-            # 訪客顯示登入鈕
             st.button("🔐 管理員登入", type="primary", on_click=go_to_login, use_container_width=True)
 
-    # --- 數據儀表板 ---
+    # --- 儀表板 ---
     if not df.empty:
         total = len(df)
         avail = len(df[df['status'] == '在庫'])
@@ -239,30 +209,19 @@ def main_page():
     else:
         total = avail = mainten = borrow = 0
 
-    st.write("") # 留白
-    
-    # 這裡我們使用 4 個 columns
-    # 在手機上，Streamlit 會自動把這 4 個變成直向排列 (這是我們想要的！字才會大)
+    st.write("")
     m1, m2, m3, m4 = st.columns(4)
-    
-    # 為每個數據建立一個白色小卡片
     with m1:
-        with st.container(border=True):
-            st.metric("📦 總器材", total)
+        with st.container(border=True): st.metric("📦 總器材", total)
     with m2:
-        with st.container(border=True):
-            st.metric("✅ 可用", avail)
+        with st.container(border=True): st.metric("✅ 可用", avail)
     with m3:
-        with st.container(border=True):
-            st.metric("🛠️ 維修中", mainten)
+        with st.container(border=True): st.metric("🛠️ 維修中", mainten)
     with m4:
-        with st.container(border=True):
-            st.metric("👤 借出中", borrow)
+        with st.container(border=True): st.metric("👤 借出中", borrow)
 
     # --- 列表區 ---
     st.markdown("### 🔎 器材檢索")
-    
-    # 搜尋框卡片
     with st.container(border=True):
         search_query = st.text_input("快速搜尋", placeholder="輸入名稱、編號...", label_visibility="collapsed")
 
@@ -274,59 +233,48 @@ def main_page():
 
         if not filtered_df.empty:
             st.write("")
-            # 列表網格：電腦 3 欄，手機自動 1 欄
             cols = st.columns(3)
             
             for idx, row in filtered_df.iterrows():
-                # 讓卡片輪流進入欄位
                 with cols[idx % 3]:
-                    # 🟦 器材單項卡片
                     with st.container(border=True):
-                        # 1. 圖片
+                        # 🔥🔥 關鍵修改：使用 HTML 強制固定圖片高度與裁切 🔥🔥
                         img_link = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
-                        st.image(img_link, use_container_width=True)
                         
-                        # 2. 標題與標籤
-                        st.markdown(f"#### {row['name']}")
-                        st.caption(f"編號：{row['uid']}")
-                        
-                        # 3. 狀態顯示 (使用 Badge 風格)
-                        status_color = {
-                            "在庫": "#E6F4EA", # 淺綠背景
-                            "借出中": "#FCE8E6", # 淺紅背景
-                            "維修中": "#FEF7E0", # 淺黃背景
-                            "報廢": "#F1F3F4"    # 淺灰背景
-                        }.get(row['status'], "#F1F3F4")
-                        
-                        text_color = {
-                            "在庫": "#137333",
-                            "借出中": "#C5221F",
-                            "維修中": "#B06000",
-                            "報廢": "#5F6368"
-                        }.get(row['status'], "#000")
-
-                        # 自製漂亮的狀態標籤
+                        # 這裡我用 object-fit: cover; height: 200px;
+                        # 意思是：高度強制 200px，寬度填滿，多餘的部分「裁切掉」(不會變形)
                         st.markdown(
-                            f"""<div style="
-                                background-color: {status_color};
-                                color: {text_color};
-                                padding: 4px 12px;
-                                border-radius: 12px;
-                                display: inline-block;
-                                font-weight: bold;
-                                font-size: 14px;
-                                margin-bottom: 8px;
-                            ">● {row['status']}</div>
+                            f"""
+                            <div style="width:100%; height:200px; overflow:hidden; border-radius:12px; margin-bottom:14px; background-color:#f0f2f6; display:flex; align-items:center; justify-content:center;">
+                                <img src="{img_link}" style="width:100%; height:100%; object-fit: cover;">
+                            </div>
                             """, 
                             unsafe_allow_html=True
                         )
                         
-                        st.markdown(f"📍 **位置**: {row['location']}")
+                        st.markdown(f"#### {row['name']}")
+                        st.caption(f"編號：{row['uid']}")
                         
+                        # 狀態標籤
+                        status_color = {
+                            "在庫": "#E6F4EA", "借出中": "#FCE8E6", 
+                            "維修中": "#FEF7E0", "報廢": "#F1F3F4"
+                        }.get(row['status'], "#F1F3F4")
+                        
+                        text_color = {
+                            "在庫": "#137333", "借出中": "#C5221F", 
+                            "維修中": "#B06000", "報廢": "#5F6368"
+                        }.get(row['status'], "#000")
+
+                        st.markdown(
+                            f"""<div style="background-color:{status_color}; color:{text_color}; padding:4px 12px; border-radius:12px; display:inline-block; font-weight:bold; font-size:14px; margin-bottom:8px;">● {row['status']}</div>""", 
+                            unsafe_allow_html=True
+                        )
+                        
+                        st.markdown(f"📍 **位置**: {row['location']}")
                         if row['status'] == "借出中":
                             st.info(f"👤 **{row['borrower']}** 使用中")
 
-                        # 4. 管理區塊 (僅管理員可見)
                         if st.session_state.is_admin:
                             st.markdown("---")
                             with st.expander("⚙️ 編輯/管理"):
@@ -338,7 +286,6 @@ def main_page():
                                 b1.button("更新", key=f"up_{row['uid']}", use_container_width=True)
                                 b2.button("刪除", key=f"del_{row['uid']}", type="primary", use_container_width=True)
                                 
-                                # 處理按鈕邏輯
                                 if st.session_state.get(f"up_{row['uid']}"):
                                     update_equipment_in_db(row['uid'], {"status": new_status, "borrower": new_b})
                                     st.toast("更新成功")
