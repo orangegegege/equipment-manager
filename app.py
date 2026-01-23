@@ -5,25 +5,26 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩控制台] 這裡設定顏色 (保證分開！)
+# 🎨 [色彩控制中心] 這裡設定顏色 (保證分開！)
 # ==========================================
 
-# 1. LOGO 設定
-LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
+# 1. [網頁大背景] (最底層的顏色)
+# 建議：淺灰 (#F3F4F6) 或是稍微帶點質感的灰
+PAGE_BG_COLOR = "#F3F4F6"
 
-# 2. 網頁大背景 (最底層的顏色)
-# 建議：淺灰 (#F8F9FA) 或 純白 (#FFFFFF)
-PAGE_BG_COLOR = "#E89B00"
+# 2. [導覽列 Header] (最上面那一條固定不動的)
+# 參考你的圖片：通常是全白 (#FFFFFF) 或是品牌色
+NAV_BG_COLOR = "#FFFFFF"       
+NAV_TEXT_COLOR = "#333333"     # 導覽列文字顏色
+NAV_BORDER_COLOR = "#E5E7EB"   # 導覽列下方的細線顏色
 
-# 3. 導覽列 (Header) 配色
-# 建議：深色 (#2D3436) 或 品牌色 (#E89B00)
-NAV_BG_COLOR = "#2D3436"
-NAV_TEXT_COLOR = "#FFFFFF"
-
-# 4. 內容卡片 (Card) 配色
-# 建議：白色 (#FFFFFF)，這樣才像卡片
+# 3. [內容卡片] (器材列表、儀表板)
+# 建議：純白 (#FFFFFF)，這樣才能跟灰色背景區隔開來
 CARD_BG_COLOR = "#FFFFFF"
 CARD_BORDER_COLOR = "#E5E7EB"
+
+# 4. LOGO 設定
+LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
 
 # 5. 狀態標籤顏色
 STATUS_COLORS = {
@@ -77,68 +78,94 @@ st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="�
 # ==========================================
 st.markdown(f"""
 <style>
-    /* 1. 隱藏預設 Header */
+    /* 1. 隱藏預設 Header (右上角的漢堡選單那些) */
     header[data-testid="stHeader"] {{ display: none; }}
 
     /* 2. 設定「網頁大背景」顏色 */
-    .stApp, [data-testid="stAppViewContainer"] {{
+    .stApp {{
         background-color: {PAGE_BG_COLOR} !important;
     }}
+    
+    /* 這裡非常關鍵：修正 Main 區域的 Padding，把內容往下推 
+       這樣第一排的內容才不會被固定的 Header 擋住 */
+    .main .block-container {{
+        padding-top: 100px !important; 
+        max-width: 1200px !important; /* 限制最大寬度，讓大螢幕看不會太散 */
+    }}
 
-    /* 3. ✨ [導覽列] 專屬樣式 (Fixed Header) ✨ */
-    /* 我們鎖定包含 navbar-marker 的那個 borderWrapper */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.navbar-marker) {{
-        position: fixed !important;  /* 強制固定在視窗頂部 */
+    /* 3. ✨ [導覽列 Header] 專屬樣式 ✨ */
+    /* 我們鎖定包含 #nav-marker 的那個容器 */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) {{
+        position: fixed !important;  /* 🔥 強制固定在視窗最頂端 */
         top: 0;
         left: 0;
         width: 100%;                 /* 橫跨整個螢幕 */
-        z-index: 999999;             /* 確保在最上層 */
+        z-index: 999999;             /* 確保在所有內容之上 */
         
-        background-color: {NAV_BG_COLOR} !important; /* 這裡只會改導覽列背景 */
-        border: none !important;     /* 移除醜框線 */
-        border-bottom: 1px solid rgba(0,0,0,0.1) !important;
-        border-radius: 0 !important; /* 變成直角的長條 */
+        background-color: {NAV_BG_COLOR} !important; /* 獨立背景色 */
+        border: none !important;
+        border-bottom: 1px solid {NAV_BORDER_COLOR} !important; /* 底部細線 */
+        border-radius: 0 !important; /* 直角，不要圓角 */
         
-        padding: 0.5rem 2rem !important;
+        padding: 0.8rem 2rem !important;
         margin: 0 !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); /* 微微的陰影 */
     }}
 
-    /* 導覽列裡的文字顏色 */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.navbar-marker) * {{
+    /* 導覽列裡面的文字顏色 */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) h1,
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) h2,
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) h3,
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) p,
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) span {{
         color: {NAV_TEXT_COLOR} !important;
     }}
 
     /* 4. ✨ [內容卡片] 專屬樣式 ✨ */
-    /* 鎖定沒有 navbar-marker 的 borderWrapper -> 這就是下面的卡片 */
-    div[data-testid="stVerticalBlockBorderWrapper"]:not(:has(.navbar-marker)) {{
-        background-color: {CARD_BG_COLOR} !important; /* 這裡只會改卡片背景 */
+    /* 邏輯：鎖定所有「有邊框」的區塊，但「排除」掉我們的 Header */
+    div[data-testid="stVerticalBlockBorderWrapper"]:not(:has(#nav-marker)) {{
+        background-color: {CARD_BG_COLOR} !important; /* 獨立卡片背景色 */
         border: 1px solid {CARD_BORDER_COLOR} !important;
         border-radius: 12px !important;
-        padding: 20px !important;
-        margin-bottom: 16px !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        padding: 24px !important;
+        margin-bottom: 24px !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }}
 
-    /* 5. 按鈕樣式 */
+    /* 5. 按鈕樣式 (優化版) */
     .stButton > button {{
-        border-radius: 50px !important;
-        height: 40px !important;
-        font-weight: 600 !important;
-        border: 1px solid #ddd !important;
+        border-radius: 8px !important;
+        height: 42px !important;
+        font-weight: 500 !important;
+        border: 1px solid #E5E7EB !important;
+        background-color: #FFFFFF;
+        color: #374151;
+        transition: all 0.2s;
     }}
+    .stButton > button:hover {{
+        border-color: #D1D5DB !important;
+        background-color: #F9FAFB !important;
+        color: #111827;
+    }}
+    /* 主要按鈕 (紅色/品牌色) */
     .stButton > button[kind="primary"] {{
-        background-color: #E85D04 !important;
+        background-color: #DC2626 !important; /* 紅色 */
         color: white !important;
         border: none !important;
+    }}
+    .stButton > button[kind="primary"]:hover {{
+        background-color: #B91C1C !important;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
     }}
     
     /* 6. 手機版優化 */
     @media (max-width: 640px) {{
-        /* 導覽列左右內距縮小 */
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.navbar-marker) {{
+        /* 導覽列內距縮小 */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(#nav-marker) {{
             padding: 0.5rem 1rem !important;
         }}
+        /* 調整 Logo 大小 */
+        img {{ max-width: 100% !important; }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -160,10 +187,11 @@ def perform_login():
 # ✨ 導覽列組件 (Fixed Header)
 # ==========================================
 def render_navbar():
-    # 使用 container(border=True) 創造一個獨立的 DOM 元素
-    # CSS 會抓到它，把它變成 fixed header
+    # 🔥 關鍵：使用 container(border=True) 
+    # 這會產生一個獨立的 HTML div，我們用 CSS 把它的樣子改成 Header
     with st.container(border=True):
-        st.markdown('<div class="navbar-marker"></div>', unsafe_allow_html=True)
+        # 這是我們的「錨點」，CSS 會認這個 id 來把這個區塊變成 Header
+        st.markdown('<div id="nav-marker"></div>', unsafe_allow_html=True)
         
         col_brand, col_menu = st.columns([2, 2], vertical_alignment="center")
         
@@ -173,13 +201,14 @@ def render_navbar():
                 st.image(LOGO_URL, width=40)
             with c2:
                 # 標題 (強制不換行，避免被擠下去)
-                st.markdown(f"<h3 style='margin:0; padding:0; color:inherit; white-space:nowrap;'>團隊器材中心</h3>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='margin:0; padding:0; font-size: 1.25rem; font-weight: 700;'>團隊器材中心</h3>", unsafe_allow_html=True)
         
         with col_menu:
-            _, buttons = st.columns([1, 3])
+            # 靠右對齊的按鈕區
+            _, buttons = st.columns([1, 4])
             with buttons:
                 if st.session_state.is_admin:
-                    b1, b2 = st.columns(2)
+                    b1, b2 = st.columns(2, gap="small")
                     b1.button("➕ 新增", on_click=show_add_modal, use_container_width=True)
                     b2.button("登出", on_click=perform_logout, type="primary", use_container_width=True)
                 else:
@@ -216,16 +245,15 @@ def main_page():
     # 1. 渲染導覽列 (這會浮在最上面)
     render_navbar()
     
-    # 🔥 關鍵修正：隱形墊片 (Spacer)
-    # 這是一個 100px 高的空區塊，專門用來把內容往下推
-    # 這樣你的第一排卡片才不會被導覽列擋住！
-    st.markdown('<div style="height: 100px;"></div>', unsafe_allow_html=True)
+    # 注意：我們已經在 CSS 裡設定了 padding-top: 100px
+    # 所以這裡不需要再手動加 spacer，內容會自動往下推
     
     df = load_data()
     
-    # 儀表板
+    # 儀表板 (四張獨立卡片)
     if not df.empty:
         total = len(df); avail = len(df[df['status']=='在庫'])
+        
         m1, m2, m3, m4 = st.columns(4)
         with m1: 
             with st.container(border=True): st.metric("📦 總數", total)
@@ -236,27 +264,29 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # 搜尋區
-    st.write("")
+    # 搜尋區 (獨立卡片)
     with st.container(border=True):
         search = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字...", label_visibility="collapsed")
 
     # 列表區
     if not df.empty:
         res = df[df['name'].str.contains(search, case=False) | df['uid'].str.contains(search, case=False)] if search else df
-        st.write("")
+        st.write("") # 間距
+        
+        # 這裡會自動排版：電腦 3 欄，手機 1 欄
         cols = st.columns(3)
         for i, row in res.iterrows():
             with cols[i%3]:
-                # 這裡的 container(border=True) 裡面沒有 navbar-marker
-                # 所以 CSS 會把它當作「卡片」來上色 (白色背景)
+                # 每一項器材都是一個獨立的卡片 (border=True)
                 with st.container(border=True):
+                    # 圖片區
                     img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
-                    st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:8px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:10px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:8px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                     
                     st.markdown(f"#### {row['name']}")
                     st.caption(f"#{row['uid']} | 📍 {row['location']}")
                     
+                    # 狀態標籤
                     style = STATUS_COLORS.get(row['status'], {"bg": "#eee", "text": "#000"})
                     st.markdown(f'<span style="background:{style["bg"]}; color:{style["text"]}; padding:4px 10px; border-radius:12px; font-weight:bold; font-size:12px">● {row['status']}</span>', unsafe_allow_html=True)
 
@@ -279,9 +309,7 @@ def main_page():
 # ==========================================
 def login_page():
     render_navbar()
-    # 同樣需要墊片，不然登入框會被擋住
-    st.markdown('<div style="height: 100px;"></div>', unsafe_allow_html=True)
-    
+    # 登入框
     _, c, _ = st.columns([1,5,1])
     with c:
         with st.container(border=True):
@@ -293,6 +321,3 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
-
-
-
