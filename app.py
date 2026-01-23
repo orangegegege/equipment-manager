@@ -5,33 +5,31 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩與樣式控制台] 請在這裡調整顏色！
+# 🎨 [色彩控制台] 請在這裡調整！
 # ==========================================
 
-# 1. 網頁大背景 (最底層的顏色)
-# 建議：淺灰 (#F3F4F6) 讓白色的導覽列和卡片跳出來
-PAGE_BG_COLOR = "#F3F4F6"
+# 1. 導覽列 (Header) 設定 - [仿蝦皮風格]
+# 這裡改成橘色看看效果，或者你可以改回白色 #FFFFFF
+NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘 (你可以改成 #FFFFFF)
+NAV_TEXT_COLOR = "#FFFFFF"     # 文字顏色 (白)
+NAV_HEIGHT = "70px"            # 導覽列高度
 
-# 2. 導覽列 (Header) 設定
-# 這是最上面那一條固定的 Bar
-NAV_BG_COLOR = "#FFFFFF"       # 背景色 (白)
-NAV_TEXT_COLOR = "#333333"     # 文字顏色 (深灰)
-NAV_BORDER_COLOR = "#E5E7EB"   # 下緣的細線顏色 (淺灰)
+# 2. 網頁大背景
+PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 
-# 3. 內容卡片 (Card) 設定
-# 這是下面器材列表和儀表板的顏色
-CARD_BG_COLOR = "#FFFFFF"      # 卡片背景 (白)
-CARD_BORDER_COLOR = "#E5E7EB"  # 卡片邊框 (淺灰)
+# 3. 內容卡片
+CARD_BG_COLOR = "#FFFFFF"
+CARD_BORDER_COLOR = "#E0E0E0"
 
-# 4. LOGO 圖片連結
+# 4. LOGO
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
 
-# 5. 狀態標籤顏色 (背景色 / 文字色)
+# 5. 狀態顏色
 STATUS_COLORS = {
-    "在庫":   {"bg": "#E6F4EA", "text": "#137333"}, # 綠
-    "借出中": {"bg": "#FCE8E6", "text": "#C5221F"}, # 紅
-    "維修中": {"bg": "#FEF7E0", "text": "#B06000"}, # 黃
-    "報廢":   {"bg": "#F1F3F4", "text": "#5F6368"}  # 灰
+    "在庫":   {"bg": "#E6F4EA", "text": "#137333"},
+    "借出中": {"bg": "#FCE8E6", "text": "#C5221F"},
+    "維修中": {"bg": "#FEF7E0", "text": "#B06000"},
+    "報廢":   {"bg": "#F1F3F4", "text": "#5F6368"}
 }
 # ==========================================
 
@@ -74,91 +72,78 @@ def delete_equipment_from_db(uid): supabase.table("equipment").delete().eq("uid"
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 🛠️ CSS 核心工程 (參考你提供的文章邏輯)
+# 🛠️ CSS 核心工程 (蝦皮架構版)
 # ==========================================
 st.markdown(f"""
 <style>
-    /* 1. 隱藏 Streamlit 預設的 Header */
+    /* 1. 隱藏預設 Header */
     header[data-testid="stHeader"] {{ display: none; }}
 
-    /* 2. 設定全頁背景顏色 */
+    /* 2. 網頁背景顏色 */
     .stApp {{
         background-color: {PAGE_BG_COLOR} !important;
     }}
 
-    /* 3. 【關鍵修正】內容補償 (Padding Compensation)
-       這是你文章中提到的重點：為了不讓固定的 Header 蓋住內容，
-       我們強迫主內容區域 (main .block-container) 往下退 90px。
+    /* 3. 【關鍵】內容補償 (Padding)
+       我們強迫主內容區域往下退 90px，
+       這樣第一排內容才不會被你的 Header 擋住！
     */
     .main .block-container {{
-        padding-top: 90px !important; 
-        max-width: 1200px !important; /* 限制內容最大寬度，避免在大螢幕太散 */
+        padding-top: 90px !important;
+        padding-bottom: 50px !important;
+        max-width: 1200px !important;
     }}
 
-    /* 4. ✨ [導覽列 Header] 絕對固定樣式 ✨ */
-    /* 這裡使用 ID 鎖定，確保只影響導覽列 */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(#my-sticky-navbar) {{
-        position: fixed !important;  /* 釘在螢幕上 */
+    /* 4. ✨ [自定義導覽列] CSS ✨ 
+       我們不依賴 Streamlit 的容器，而是直接用 CSS 創造一個固定層
+       這裡的 #my-custom-header 會對應到下面 HTML 裡的 ID
+    */
+    #my-custom-header {{
+        position: fixed;       /* 釘死在視窗上 */
         top: 0;
         left: 0;
         width: 100%;
-        z-index: 999999;             /* 確保在最上層 */
+        height: {NAV_HEIGHT};
+        background-color: {NAV_BG_COLOR};
+        z-index: 9999999;      /* 確保在最上層，比 Streamlit 的任何東西都高 */
         
-        background-color: {NAV_BG_COLOR} !important;
-        border: none !important;
-        border-bottom: 1px solid {NAV_BORDER_COLOR} !important;
-        border-radius: 0 !important; /* 直角長條 */
-        
-        padding: 0.5rem 2rem !important;
-        margin: 0 !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        display: flex;         /* 彈性排版 */
+        align_items: center;   /* 垂直置中 */
+        justify-content: space-between; /* 左右推開 */
+        padding: 0 2rem;       /* 左右內距 */
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        color: {NAV_TEXT_COLOR};
+        border-bottom: 1px solid rgba(0,0,0,0.05);
     }}
 
-    /* 導覽列內的文字顏色 */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(#my-sticky-navbar) * {{
-        color: {NAV_TEXT_COLOR} !important;
-    }}
-
-    /* 5. ✨ [內容卡片] 樣式 ✨ */
-    /* 鎖定所有「不是」導覽列的容器，把它們變成白色卡片 */
-    div[data-testid="stVerticalBlockBorderWrapper"]:not(:has(#my-sticky-navbar)) {{
+    /* 5. 內容卡片樣式 */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
         background-color: {CARD_BG_COLOR} !important;
         border: 1px solid {CARD_BORDER_COLOR} !important;
-        border-radius: 12px !important;
-        padding: 24px !important;
-        margin-bottom: 24px !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        border-radius: 8px !important;
+        padding: 20px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }}
 
-    /* 6. 按鈕樣式優化 */
+    /* 6. 按鈕樣式 */
     .stButton > button {{
-        border-radius: 8px !important;
+        border-radius: 4px !important;
         height: 40px !important;
         font-weight: 500 !important;
-        border: 1px solid #E5E7EB !important;
-        background-color: #FFFFFF;
-        color: #374151;
-        transition: all 0.2s;
+        border: 1px solid #ddd !important;
+        background-color: #fff;
+        color: #333;
     }}
-    .stButton > button:hover {{
-        background-color: #F9FAFB !important;
-        border-color: #D1D5DB !important;
-    }}
-    
-    /* 主要按鈕 (紅色/品牌色) */
+    /* 主要按鈕 (橘色/紅色) */
     .stButton > button[kind="primary"] {{
-        background-color: #DC2626 !important;
+        background-color: #EE4D2D !important; /* 蝦皮橘 */
         color: white !important;
         border: none !important;
     }}
     
     /* 7. 手機版優化 */
     @media (max-width: 640px) {{
-        /* 手機上導覽列內距縮小 */
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(#my-sticky-navbar) {{
-            padding: 0.5rem 1rem !important;
-        }}
-        /* 圖片自適應 */
+        #my-custom-header {{ padding: 0 1rem; }}
         img {{ max-width: 100% !important; }}
     }}
 </style>
@@ -178,36 +163,55 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# ✨ 導覽列組件 (Fixed Header)
+# ✨ 導覽列組件 (HTML Injection)
 # ==========================================
 def render_navbar():
-    # 我們用 container(border=True) 創造一個實體區塊
-    # CSS 會抓到裡面的 #my-sticky-navbar ID，把它變成固定在頂部的 Header
-    with st.container(border=True):
-        st.markdown('<div id="my-sticky-navbar"></div>', unsafe_allow_html=True)
+    # 這次我們不只用 container，而是直接插入一段 HTML 結構
+    # 這段 HTML 會被上面的 CSS #my-custom-header 抓去變成 Header
+    
+    # 這裡我們用一個技巧：雖然 HTML 渲染出來了，但按鈕的互動還是需要 Streamlit
+    # 所以我們用一個隱形的 container 來佔位，把按鈕放在裡面
+    # 但視覺上我們用 CSS 把它「搬」到 Header 的位置 (這比較複雜，我們換個簡單的)
+    
+    # 修正策略：我們還是用 Streamlit 的容器，但用 CSS 強制把它變成 Header
+    # 這是最穩定的做法，可以同時保有互動性
+    
+    with st.container():
+        # 這個空的 div 是為了讓 CSS 抓到這裡，把整個 container 變成 Header
+        st.markdown(f'<div id="my-custom-header"></div>', unsafe_allow_html=True)
         
-        # 左右佈局
-        col_brand, col_menu = st.columns([1, 1], vertical_alignment="center")
+        # ⚠️ 注意：因為 CSS 把這個 container 設為 fixed，它會浮起來
+        # 這裡面的內容會自動變成 Header 的內容
         
-        with col_brand:
-            # 嵌套 columns 來排 Logo 和 標題
-            c1, c2 = st.columns([1, 4], vertical_alignment="center")
-            with c1:
-                st.image(LOGO_URL, width=40)
-            with c2:
-                # 標題 (使用 h3, 並且強制不換行)
-                st.markdown(f"<h3 style='margin:0; padding:0; font-size:1.2rem; font-weight:700;'>團隊器材中心</h3>", unsafe_allow_html=True)
+        # 我們需要手動調整這裡的排版，因為 st.columns 在 fixed container 裡有時候會怪怪的
+        # 但為了按鈕功能，我們還是得用 columns
         
-        with col_menu:
-            # 按鈕靠右
-            _, buttons = st.columns([1, 2])
-            with buttons:
-                if st.session_state.is_admin:
-                    b1, b2 = st.columns(2, gap="small")
-                    b1.button("➕ 新增", on_click=show_add_modal, use_container_width=True)
-                    b2.button("登出", on_click=perform_logout, type="primary", use_container_width=True)
-                else:
-                    st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
+        c1, c2 = st.columns([1, 1], vertical_alignment="center")
+        
+        with c1:
+            # 這裡因為 CSS 設了 color，所以文字會自動變色
+            # 我們用 HTML 來控制 Logo 和標題的排版，比較漂亮
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; gap:10px; height: {NAV_HEIGHT};">
+                <img src="{LOGO_URL}" style="height: 35px;">
+                <h3 style="margin:0; padding:0; color:inherit; font-size:1.2rem; white-space:nowrap;">團隊器材中心</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with c2:
+            # 按鈕區 (靠右)
+            # 因為這是在 Fixed Header 裡，我們需要把這區塊往右推
+            # 這裡用一個空的 column 來佔位是不夠的，我們直接在 columns 裡操作
+            
+            # 使用 CSS hack 讓這一塊浮動到右邊
+            st.markdown('<style>div[data-testid="column"]:nth-of-type(2) { display: flex; justify-content: flex-end; }</style>', unsafe_allow_html=True)
+            
+            if st.session_state.is_admin:
+                b1, b2 = st.columns(2, gap="small")
+                b1.button("➕ 新增", on_click=show_add_modal)
+                b2.button("登出", on_click=perform_logout, type="primary")
+            else:
+                st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary")
 
 # ==========================================
 # 彈窗：新增器材
@@ -237,17 +241,17 @@ def show_add_modal():
 # 頁面：主控台
 # ==========================================
 def main_page():
-    # 1. 渲染導覽列
+    # 1. 渲染導覽列 (它會自動飛到最上面變成 Header)
     render_navbar()
     
-    # 這裡不需要手動加空白了，因為 CSS 的 .main .block-container padding-top 已經幫你預留了空間
+    # 2. 內容開始
+    # CSS 已經設定了 padding-top: 90px，所以這裡不用擔心被擋住
     
     df = load_data()
     
-    # 2. 儀表板 (四張卡片)
+    # 儀表板
     if not df.empty:
         total = len(df); avail = len(df[df['status']=='在庫'])
-        
         m1, m2, m3, m4 = st.columns(4)
         with m1: 
             with st.container(border=True): st.metric("📦 總數", total)
@@ -258,11 +262,11 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # 3. 搜尋區 (獨立卡片)
+    # 搜尋區
     with st.container(border=True):
         search = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字...", label_visibility="collapsed")
 
-    # 4. 列表區
+    # 列表區
     if not df.empty:
         res = df[df['name'].str.contains(search, case=False) | df['uid'].str.contains(search, case=False)] if search else df
         st.write("") 
@@ -270,18 +274,17 @@ def main_page():
         cols = st.columns(3)
         for i, row in res.iterrows():
             with cols[i%3]:
-                # 每一項器材都是一張卡片
                 with st.container(border=True):
                     # 圖片
                     img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
-                    st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:8px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                     
                     st.markdown(f"#### {row['name']}")
                     st.caption(f"#{row['uid']} | 📍 {row['location']}")
                     
-                    # 狀態標籤
+                    # 狀態
                     style = STATUS_COLORS.get(row['status'], {"bg": "#eee", "text": "#000"})
-                    st.markdown(f'<span style="background:{style["bg"]}; color:{style["text"]}; padding:4px 10px; border-radius:12px; font-weight:bold; font-size:12px">● {row['status']}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span style="background:{style["bg"]}; color:{style["text"]}; padding:2px 8px; border-radius:4px; font-weight:bold; font-size:12px">● {row['status']}</span>', unsafe_allow_html=True)
 
                     if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
 
@@ -303,7 +306,6 @@ def main_page():
 def login_page():
     render_navbar()
     
-    # 登入框
     _, c, _ = st.columns([1,5,1])
     with c:
         with st.container(border=True):
