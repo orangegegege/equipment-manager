@@ -168,7 +168,7 @@ def main_page():
     
     # 頂部導覽
     col_logo, col_space, col_actions = st.columns([6, 2, 2])
-    with col_logo: st.title("📦 團隊器材管理系統")
+    with col_logo: st.title("修蛋吉咧器材管理系統")
     with col_actions:
         if st.session_state.is_admin:
             c_add, c_logout = st.columns(2)
@@ -252,3 +252,4 @@ if st.session_state.current_page == "login":
 else:
 
     main_page()
+
