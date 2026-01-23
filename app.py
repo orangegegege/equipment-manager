@@ -20,7 +20,7 @@ CARD_BG_COLOR = "#FFFFFF"
 CARD_BORDER_COLOR = "#E0E0E0"
 
 # 4. LOGO (建議用橫式的圖，或者單純圖示)
-LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
+LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png"
 
 # 5. 狀態顏色
 STATUS_COLORS = {
@@ -287,6 +287,7 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
 
