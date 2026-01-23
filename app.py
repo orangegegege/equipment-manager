@@ -131,7 +131,10 @@ def show_add_modal():
                     "borrower": "",
                     "location": new_loc,
                     "image_url": img_url, # 存入剛產生的網址
-                    "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # 如果你資料庫欄位叫 updated_at
+		    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+
+		    # 或者如果你剛剛去資料庫新增了 update_time 欄位，那就不用改程式碼
                 }
                 
                 try:
