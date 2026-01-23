@@ -155,7 +155,9 @@ def login_page():
         st.markdown("<p class='login-title'>🔐 管理員登入</p>", unsafe_allow_html=True)
         with st.container(border=True):
             st.text_input("密碼", type="password", key="password_input")
-            b1, b2 = st.columns(2)
+            # 切成三份：[返回按鈕 1] [中間空白 2] [登入按鈕 1]
+            b1, _, b2 = st.columns([1, 2, 1])
+            
             with b1: st.button("返回首頁", on_click=go_to_home)
             with b2: st.button("登入", type="primary", on_click=perform_login)
 
@@ -248,4 +250,5 @@ def main_page():
 if st.session_state.current_page == "login":
     login_page()
 else:
+
     main_page()
