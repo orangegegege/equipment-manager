@@ -105,7 +105,7 @@ st.markdown(f"""
         
         display: flex;
         align_items: flex-start; /* 1. 先取消置中 (改成靠上) */
-        padding-top: 30px;
+        padding-top: 25px;
         padding-left: 70px;  /* Logo 距離左邊的距離 */
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }}
@@ -287,6 +287,7 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
 
