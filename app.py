@@ -8,7 +8,7 @@ import time
 # 🎨 [基本設定]
 # ==========================================
 NAV_HEIGHT = "90px"            # 導覽列高度
-NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘
+NAV_BG_COLOR = "#E89B00"       # 蝦皮橘
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png" # 你的 Logo
 
@@ -244,5 +244,6 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
