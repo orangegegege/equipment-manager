@@ -9,7 +9,7 @@ import time
 # ==========================================
 
 # 1. 導覽列 (Top Bar) 設定 - [只放 Logo]
-NAV_BG_COLOR = "#E89B00"       # 蝦皮橘
+NAV_BG_COLOR = "#E89B00"       # 
 NAV_HEIGHT = "80px"            # 導覽列高度
 
 # 2. 網頁大背景
@@ -105,7 +105,7 @@ st.markdown(f"""
         
         display: flex;
         align_items: flex-start; /* 1. 先取消置中 (改成靠上) */
-        padding-top: NAV_HEIGHT/2 px;
+        padding-top: {NAV_HEIGHT}/2 px;
         padding-left: 70px;  /* Logo 距離左邊的距離 */
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }}
@@ -287,6 +287,7 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
 
