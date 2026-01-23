@@ -164,7 +164,7 @@ def render_deco_header():
     # 這樣它就是一個單純的、不會動的、純視覺的頂部 Bar
     st.markdown(f"""
     <div id="my-deco-header">
-        <img src="{LOGO_URL}" style="height: 36px;">
+        <img src="{LOGO_URL}" style="height: 50px;">
     </div>
     """, unsafe_allow_html=True)
 
@@ -287,6 +287,7 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
 
