@@ -56,7 +56,7 @@ st.markdown("""
     .stApp {
         /* 👇 [調整點 1] 這裡是「整頁背景」的顏色 */
         /* #F8F9FA 是淺灰白，你可以改成 #FFFFFF (純白) 或 #000000 (黑) */
-        background-color: #F8F9FA; 
+        background-color: #FFFFFF; 
     }
 
     /* 3. 置頂導覽列 (那個黑色的膠囊條) */
@@ -67,7 +67,7 @@ st.markdown("""
         
         /* 👇 [調整點 2] 這裡是「導覽列」的背景顏色 */
         /* #2D3436 是深灰色，你可以改成任何你喜歡的顏色 */
-        background-color: #2D3436; 
+        background-color: #E89B00; 
         
         border-radius: 50px;
         padding: 10px 20px;
@@ -253,3 +253,4 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
