@@ -17,7 +17,7 @@ PAGE_BG_COLOR = "#F8F9FA"
 
 # 3. 導覽列 (Header) 配色
 # 建議：深色 (#2D3436) 或 品牌色 (#E89B00)
-NAV_BG_COLOR = "#E89B00"
+NAV_BG_COLOR = "#2D3436"
 NAV_TEXT_COLOR = "#FFFFFF"
 
 # 4. 內容卡片 (Card) 配色
@@ -293,4 +293,3 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
-
