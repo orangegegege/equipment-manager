@@ -59,7 +59,7 @@ st.markdown("""
 <style>
     /* 1. 全域背景 */
     .stApp {
-        background-color: #FFFFFF;
+        background-color: #F1F5F9;
     }
 
     /* 2. 核心卡片樣式 */
@@ -302,6 +302,7 @@ if st.session_state.current_page == "login":
     login_page()
 else:
     main_page()
+
 
 
 
