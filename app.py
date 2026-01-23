@@ -13,7 +13,7 @@ import time
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png" 
 
 # 2. 導覽列 (Header) 配色 - [獨立控制]
-NAV_BG_COLOR = "#FFFFFF"      # 導覽列背景色 (白)
+NAV_BG_COLOR = "#E89B00"      # 導覽列背景色 (白)
 NAV_TEXT_COLOR = "#333333"    # 導覽列文字色 (深灰)
 NAV_BORDER_COLOR = "#E5E7EB"  # 導覽列下緣邊框線
 
@@ -297,3 +297,4 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
