@@ -13,7 +13,7 @@ LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
 
 # 2. 網頁大背景 (最底層的顏色)
 # 建議：淺灰 (#F8F9FA) 或 純白 (#FFFFFF)
-PAGE_BG_COLOR = "#F8F9FA"
+PAGE_BG_COLOR = "#E89B00"
 
 # 3. 導覽列 (Header) 配色
 # 建議：深色 (#2D3436) 或 品牌色 (#E89B00)
@@ -293,4 +293,5 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
