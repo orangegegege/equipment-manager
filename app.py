@@ -9,8 +9,8 @@ import time
 # ==========================================
 
 # 1. 導覽列 (Top Bar) 設定 - [只放 Logo]
-NAV_BG_COLOR = "#EE4D2D"       # 蝦皮橘
-NAV_HEIGHT = "60px"            # 導覽列高度
+NAV_BG_COLOR = "#E89B00"       # 
+NAV_HEIGHT = "80px"            # 導覽列高度
 
 # 2. 網頁大背景
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
@@ -20,7 +20,7 @@ CARD_BG_COLOR = "#FFFFFF"
 CARD_BORDER_COLOR = "#E0E0E0"
 
 # 4. LOGO (建議用橫式的圖，或者單純圖示)
-LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2504/2504929.png"
+LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png"
 
 # 5. 狀態顏色
 STATUS_COLORS = {
@@ -104,8 +104,9 @@ st.markdown(f"""
         z-index: 9999999;
         
         display: flex;
-        align_items: center; /* 垂直置中 */
-        padding-left: 20px;  /* Logo 距離左邊的距離 */
+        align_items: flex-start; /* 1. 先取消置中 (改成靠上) */
+        padding-top: {NAV_HEIGHT}/2 px;
+        padding-left: 70px;  /* Logo 距離左邊的距離 */
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }}
 
@@ -159,24 +160,11 @@ def perform_login():
 # ✨ 純裝飾 Header (只放圖)
 # ==========================================
 def render_deco_header():
-    # 我們在這裡直接寫死 CSS，確保它一定會聽話
+    # 直接注入 HTML，不使用 Streamlit 容器
+    # 這樣它就是一個單純的、不會動的、純視覺的頂部 Bar
     st.markdown(f"""
-    <div id="my-deco-header" style="
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: {NAV_HEIGHT};
-        background-color: {NAV_BG_COLOR};
-        z-index: 9999999;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        
-        /* 👇👇👇 這三行就是「垂直置中」的關鍵魔法 👇👇👇 */
-        display: flex;              /* 1. 開啟排版模式 */
-        align-items: center;        /* 2. 垂直方向：置中對齊 */
-        padding-left: 20px;         /* 3. 靠左邊留一點空隙 */
-    ">
-        <img src="{LOGO_URL}" style="height: 70%; object-fit: contain;">
+    <div id="my-deco-header">
+        <img src="{LOGO_URL}" style="height: 50px;">
     </div>
     """, unsafe_allow_html=True)
 
@@ -299,3 +287,10 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
+
+
+
+
+
+
