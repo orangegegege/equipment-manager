@@ -12,7 +12,7 @@ NAV_BG_COLOR = "#E88B00"       # 你的橘色
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png" # 你的 Logo
 
-# 🔥 統一管理的分類清單 (新增跟篩選都用這份，方便管理)
+# 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
 # --- 1. Supabase 連線 ---
@@ -110,7 +110,6 @@ st.markdown(f"""
     }}
     
     /* 6. 分類標籤 (Pills) 美化 */
-    /* 讓選中的標籤變成橘色 */
     div[data-testid="stPills"] button[aria-selected="true"] {{
         background-color: {NAV_BG_COLOR} !important;
         color: white !important;
@@ -143,7 +142,7 @@ def render_header():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 彈窗：新增器材
+# 🔥 彈窗 1：新增器材
 # ==========================================
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -153,8 +152,6 @@ def show_add_modal():
         uid = st.text_input("編號", placeholder="例如：TOOL-001")
         
         c1, c2 = st.columns(2)
-        
-        # 🔥 使用全域變數 CATEGORY_OPTIONS，確保分類一致
         cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=None, placeholder="--請選擇--")
         status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=None, placeholder="--請選擇--")
         
@@ -189,6 +186,81 @@ def show_add_modal():
                     st.error(f"寫入失敗: {e}")
             else:
                 st.warning("⚠️ 請完整填寫名稱、編號，並選擇分類與狀態！")
+
+# ==========================================
+# 🔥 彈窗 2：編輯/管理器材 (新功能！)
+# ==========================================
+@st.dialog("⚙️ 編輯/管理器材", width="small")
+def show_edit_modal(item):
+    # item 是從資料庫傳進來的該筆資料 (Dictionary)
+    st.caption(f"正在編輯：{item['name']} (#{item['uid']})")
+    
+    # 顯示目前的圖片
+    if item['image_url']:
+        st.image(item['image_url'], width=100)
+    
+    with st.form("edit_form"):
+        # 預先填入舊資料 (value=...)
+        new_name = st.text_input("名稱", value=item['name'])
+        
+        # 使用 columns 排版
+        c1, c2 = st.columns(2)
+        
+        # 處理下拉選單的預設值 (防呆：如果舊資料不在選項內，預設選第一個)
+        try: cat_idx = CATEGORY_OPTIONS.index(item['category'])
+        except: cat_idx = 0
+        new_cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=cat_idx)
+        
+        try: status_idx = ["在庫", "借出中", "維修中", "報廢"].index(item['status'])
+        except: status_idx = 0
+        new_status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=status_idx)
+        
+        c3, c4 = st.columns(2)
+        new_qty = c3.number_input("數量", min_value=1, value=item.get('quantity', 1), step=1)
+        new_loc = c4.text_input("位置", value=item['location'] or "")
+        
+        new_borrower = st.text_input("借用人 (若借出請填寫)", value=item['borrower'] or "")
+        
+        # 檔案上傳 (如果不傳，就保留舊的)
+        new_file = st.file_uploader("更換照片 (若不更改請留空)", type=['jpg','png'])
+        
+        # 按鈕區
+        col_update, col_delete = st.columns([1, 1])
+        
+        # 這裡有兩個按鈕，要用 form_submit_button
+        submitted = col_update.form_submit_button("💾 儲存更新", type="primary", use_container_width=True)
+        # 刪除通常比較危險，我們把它移出 form 或是用 checkbox 確認，
+        # 但為了簡單，這裡我們做一個特殊的刪除按鈕 (Streamlit Form 限制：Form 裡只能有一個 submit)
+        # 所以我們把刪除按鈕放在 Form 外面比較好控制，或者我們用一個 Checkbox 在 Form 裡
+        delete_confirm = col_delete.checkbox("確認刪除此器材")
+
+        if submitted:
+            # 1. 處理刪除
+            if delete_confirm:
+                delete_equipment_from_db(item['uid'])
+                st.toast("🗑️ 已刪除器材")
+                time.sleep(1)
+                st.rerun()
+            
+            # 2. 處理更新
+            else:
+                # 如果有上傳新圖，就用新圖；否則用舊圖
+                final_url = upload_image(new_file) if new_file else item['image_url']
+                
+                updates = {
+                    "name": new_name,
+                    "category": new_cat,
+                    "status": new_status,
+                    "quantity": new_qty,
+                    "location": new_loc,
+                    "borrower": new_borrower,
+                    "image_url": final_url,
+                    "updated_at": datetime.now().strftime("%Y-%m-%d")
+                }
+                update_equipment_in_db(item['uid'], updates)
+                st.toast("✅ 資料已更新！")
+                time.sleep(1)
+                st.rerun()
 
 # ==========================================
 # 主頁面
@@ -226,50 +298,36 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # ==========================================
-    # 🔥🔥🔥 搜尋與分類篩選區 (仿 Adidas) 🔥🔥🔥
-    # ==========================================
+    # 分類篩選與搜尋
     st.write("")
     with st.container(border=True):
-        # 1. 分類標籤列 (使用 st.pills，這是目前最新、最像 App 篩選的元件)
-        # 我們把「全部顯示」加到選項的最前面
         filter_options = ["全部顯示"] + CATEGORY_OPTIONS
-        
-        # 顯示膠囊按鈕，預設選「全部顯示」
         selected_category = st.pills("快速分類篩選", filter_options, default="全部顯示", label_visibility="collapsed")
-        
-        st.write("") # 小留白
-        
-        # 2. 關鍵字搜尋框
+        st.write("") 
         search_query = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字 (名稱、編號)...", label_visibility="collapsed")
 
-    # ==========================================
-    # 🔄 資料篩選邏輯
-    # ==========================================
+    # 資料列表
     if not df.empty:
-        # 第一步：先過濾分類
+        # 篩選邏輯
         if selected_category and selected_category != "全部顯示":
-            # 篩選出 category 欄位等於所選分類的資料
             filtered_df = df[df['category'] == selected_category]
         else:
-            # 如果選全部，就保留原本的 df
             filtered_df = df
 
-        # 第二步：再過濾關鍵字 (在分類篩選的基礎上繼續篩選)
         if search_query:
             filtered_df = filtered_df[
                 filtered_df['name'].str.contains(search_query, case=False) | 
                 filtered_df['uid'].str.contains(search_query, case=False)
             ]
         
-        # 第三步：顯示結果
+        # 顯示卡片
         if not filtered_df.empty:
             st.write("") 
             cols = st.columns(3)
-            # 使用 enumerate 配合 iterrows 確保排版正確
             for i, (index, row) in enumerate(filtered_df.iterrows()):
                 with cols[i % 3]:
                     with st.container(border=True):
+                        # 圖片與資訊
                         img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                         st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
@@ -283,33 +341,13 @@ def main_page():
 
                         if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
 
+                        # 🔥🔥🔥 這裡改成「編輯按鈕」 🔥🔥🔥
                         if st.session_state.is_admin:
                             st.markdown("---")
-                            with st.expander("⚙️ 管理"):
-                                try:
-                                    current_status_idx = ["在庫","借出中","維修中","報廢"].index(row['status'])
-                                except:
-                                    current_status_idx = 0
-                                
-                                c_admin_1, c_admin_2 = st.columns(2)
-                                ns = c_admin_1.selectbox("狀態", ["在庫","借出中","維修中","報廢"], key=f"s{row['uid']}", index=current_status_idx)
-                                
-                                current_qty = row.get('quantity', 1) if row.get('quantity') else 1
-                                nq = c_admin_2.number_input("數量", min_value=1, step=1, value=current_qty, key=f"q{row['uid']}")
-                                
-                                nb = st.text_input("借用人", value=row['borrower'] or "", key=f"b{row['uid']}")
-                                
-                                b1, b2 = st.columns(2)
-                                if b1.button("更新", key=f"u{row['uid']}", use_container_width=True):
-                                    update_equipment_in_db(row['uid'], {"status":ns, "borrower":nb, "quantity": nq})
-                                    st.toast("更新成功")
-                                    st.rerun()
-                                if b2.button("刪除", key=f"d{row['uid']}", type="primary", use_container_width=True):
-                                    delete_equipment_from_db(row['uid'])
-                                    st.toast("已刪除")
-                                    st.rerun()
+                            # 按下這個按鈕，會呼叫 show_edit_modal 並且把這筆 row 的資料傳進去
+                            if st.button("⚙️ 編輯 / 管理", key=f"btn_{row['uid']}", use_container_width=True):
+                                show_edit_modal(row)
         else:
-            # 這裡顯示更友善的提示，告訴使用者是分類沒東西還是搜尋沒東西
             if selected_category != "全部顯示":
                 st.info(f"📂 「{selected_category}」分類下目前沒有器材。")
             else:
