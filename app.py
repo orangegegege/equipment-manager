@@ -5,10 +5,10 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩與基本設定]
+# 🎨 [色彩與基本設定] (保留你的設定)
 # ==========================================
 NAV_HEIGHT = "80px"
-NAV_BG_COLOR = "#E88B00"       # 
+NAV_BG_COLOR = "#E88B00"       # 你的橘色
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png" # 你的 Logo
 
@@ -132,7 +132,7 @@ def render_header():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🔥 彈窗：新增器材 (這裡更新了！)
+# 彈窗：新增器材
 # ==========================================
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -141,36 +141,20 @@ def show_add_modal():
         name = st.text_input("名稱", placeholder="例如：無線麥克風")
         uid = st.text_input("編號", placeholder="例如：MIC-001")
         
-        # 使用 columns 排版
         c1, c2 = st.columns(2)
-        
-        # 🔥 修改點 1：加入 placeholder="--請選擇--" 和 index=None (預設不選)
-        cat = c1.selectbox(
-            "分類", 
-            ["攝影", "燈光", "線材", "電腦", "其他"], 
-            index=None, 
-            placeholder="--請選擇--"
-        )
-        status = c2.selectbox(
-            "狀態", 
-            ["在庫", "借出中", "維修中", "報廢"], 
-            index=None, 
-            placeholder="--請選擇--"
-        )
+        cat = c1.selectbox("分類", ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"], index=None, placeholder="--請選擇--")
+        status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=None, placeholder="--請選擇--")
         
         c3, c4 = st.columns(2)
-        # 🔥 修改點 2：新增「數量」欄位
         qty = c3.number_input("數量", min_value=1, value=1, step=1)
         loc = c4.text_input("位置", value="儲藏室")
         
         file = st.file_uploader("照片", type=['jpg','png'])
         
         if st.form_submit_button("新增", type="primary", use_container_width=True):
-            # 🔥 修改點 3：增加防呆檢查，確保使用者有選分類和狀態
             if name and uid and cat and status:
                 url = upload_image(file) if file else None
                 
-                # 準備寫入資料庫的資料
                 data_payload = {
                     "uid": uid, 
                     "name": name, 
@@ -178,7 +162,7 @@ def show_add_modal():
                     "status": status,
                     "borrower": "", 
                     "location": loc, 
-                    "quantity": qty,  # 記得在資料庫新增這個欄位！
+                    "quantity": qty, 
                     "image_url": url,
                     "updated_at": datetime.now().strftime("%Y-%m-%d")
                 }
@@ -186,12 +170,11 @@ def show_add_modal():
                 try:
                     add_equipment_to_db(data_payload)
                     st.toast(f"🎉 成功新增：{name} (數量: {qty})")
-                    time.sleep(1) # 讓 toast 顯示一下
+                    time.sleep(1) 
                     st.rerun()
                 except Exception as e:
-                    st.error(f"寫入失敗，請檢查資料庫是否有 'quantity' 欄位！錯誤訊息: {e}")
+                    st.error(f"寫入失敗: {e}")
             else:
-                # 如果有欄位沒填，跳出警告
                 st.warning("⚠️ 請完整填寫名稱、編號，並選擇分類與狀態！")
 
 # ==========================================
@@ -247,7 +230,6 @@ def main_page():
                     st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                     st.markdown(f"#### {row['name']}")
                     
-                    # 顯示數量 (如果資料庫有這個欄位且大於1)
                     qty_display = f" | 數量: {row.get('quantity', 1)}" if row.get('quantity') else ""
                     st.caption(f"#{row['uid']} {qty_display} | 📍 {row['location']}")
                     
@@ -260,20 +242,36 @@ def main_page():
                     if st.session_state.is_admin:
                         st.markdown("---")
                         with st.expander("⚙️ 管理"):
-                            # 為了安全，這裡加個 try except，怕舊資料沒有 quantity
+                            # 取得目前狀態的 index
                             try:
                                 current_status_idx = ["在庫","借出中","維修中","報廢"].index(row['status'])
                             except:
                                 current_status_idx = 0
-                                
-                            ns = st.selectbox("狀態", ["在庫","借出中","維修中","報廢"], key=f"s{row['uid']}", index=current_status_idx)
+                            
+                            # 🔥🔥🔥 這裡就是你原本缺少的部分！ 🔥🔥🔥
+                            # 我把管理區分成兩欄：左邊改狀態，右邊改數量
+                            c_admin_1, c_admin_2 = st.columns(2)
+                            
+                            ns = c_admin_1.selectbox("狀態", ["在庫","借出中","維修中","報廢"], key=f"s{row['uid']}", index=current_status_idx)
+                            
+                            # 這裡加入數量調整欄位，預設值抓取目前資料庫的數值
+                            current_qty = row.get('quantity', 1) if row.get('quantity') else 1
+                            nq = c_admin_2.number_input("數量", min_value=1, step=1, value=current_qty, key=f"q{row['uid']}")
+                            
+                            # 借用人輸入框
                             nb = st.text_input("借用人", value=row['borrower'] or "", key=f"b{row['uid']}")
                             
                             b1, b2 = st.columns(2)
                             if b1.button("更新", key=f"u{row['uid']}", use_container_width=True):
-                                update_equipment_in_db(row['uid'], {"status":ns, "borrower":nb}); st.toast("更新成功"); st.rerun()
+                                # 🔥 更新時，把新的數量 nq 也一起寫入資料庫
+                                update_equipment_in_db(row['uid'], {"status":ns, "borrower":nb, "quantity": nq})
+                                st.toast("更新成功")
+                                st.rerun()
+                                
                             if b2.button("刪除", key=f"d{row['uid']}", type="primary", use_container_width=True):
-                                delete_equipment_from_db(row['uid']); st.toast("已刪除"); st.rerun()
+                                delete_equipment_from_db(row['uid'])
+                                st.toast("已刪除")
+                                st.rerun()
     else: st.info("尚無資料")
 
 # ==========================================
@@ -292,4 +290,3 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
-
