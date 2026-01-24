@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import datetime
 import time
 import os
-from fpdf import FPDF # 這裡是使用 fpdf2
+from fpdf import FPDF # 使用 fpdf2
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -17,9 +17,10 @@ LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/lo
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
-# 字體設定 (改用 Google Noto Sans TC)
-FONT_FILE = "NotoSansTC-Regular.ttf"
-FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanstc/NotoSansTC-Regular.ttf"
+# 字體設定 (改用穩定的台灣開源字體 - 芫荽體)
+FONT_FILE = "Iansui-Regular.ttf"
+# 這是穩定的 raw 檔案連結
+FONT_URL = "https://raw.githubusercontent.com/ButTaiwan/iansui/main/Iansui-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
 @st.cache_resource
@@ -65,14 +66,14 @@ def delete_equipment_from_db(uid):
 def check_and_download_font():
     # 檢查檔案是否存在，如果存在但檔案太小(代表可能是壞檔)，就刪除重抓
     if os.path.exists(FONT_FILE):
-        if os.path.getsize(FONT_FILE) < 1000000: # 如果小於 1MB，通常是壞檔
+        if os.path.getsize(FONT_FILE) < 1000: # 如果小於 1KB，肯定是壞檔
             try:
                 os.remove(FONT_FILE)
             except:
                 pass
     
     if not os.path.exists(FONT_FILE):
-        with st.spinner("正在下載中文字體檔 (Google Noto Sans)...請稍候"):
+        with st.spinner("正在下載中文字體檔 (Iansui)...這可能需要幾秒鐘"):
             import requests
             try:
                 r = requests.get(FONT_URL)
@@ -93,13 +94,16 @@ def create_pdf(selected_items):
     
     # 註冊中文字體
     if os.path.exists(FONT_FILE):
-        # fpdf2 的寫法
-        pdf.add_font('NotoSans', '', FONT_FILE)
-        pdf.set_font('NotoSans', '', 14)
+        try:
+            # fpdf2 的寫法
+            pdf.add_font('ChineseFont', '', FONT_FILE)
+            pdf.set_font('ChineseFont', '', 14)
+        except Exception as e:
+            st.error(f"字體載入失敗: {e}")
+            return None
     else:
-        # 如果真的下載失敗，回退到英文，避免當機
-        pdf.set_font("Helvetica", size=12)
-        pdf.cell(0, 10, txt="Error: Chinese font not found (Download failed).", ln=1, align='C')
+        st.error("找不到字體檔，無法產生中文 PDF。")
+        return None
 
     # 標題
     pdf.set_font_size(20)
@@ -251,14 +255,15 @@ def show_cart_modal(df):
         # 產生 PDF
         try:
             pdf_bytes = create_pdf(cart_items.to_dict('records'))
-            col2.download_button(
-                label="📄 下載 PDF 清單",
-                data=bytes(pdf_bytes), # 確保轉換為 bytes
-                file_name=f"equipment_list_{int(time.time())}.pdf",
-                mime="application/pdf",
-                type="primary",
-                use_container_width=True
-            )
+            if pdf_bytes:
+                col2.download_button(
+                    label="📄 下載 PDF 清單",
+                    data=bytes(pdf_bytes), 
+                    file_name=f"equipment_list_{int(time.time())}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True
+                )
         except Exception as e:
             st.error(f"PDF 產生失敗: {e}")
 
