@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import datetime
 import time
 import os
-from fpdf import FPDF # 使用 fpdf2
+from fpdf import FPDF # 確保 requirements.txt 裡寫的是 fpdf2
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -17,10 +17,8 @@ LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/lo
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
-# 字體設定 (改用穩定的台灣開源字體 - 芫荽體)
-FONT_FILE = "Iansui-Regular.ttf"
-# 這是穩定的 raw 檔案連結
-FONT_URL = "https://raw.githubusercontent.com/ButTaiwan/iansui/main/Iansui-Regular.ttf"
+# ⚠️ 字體設定：這裡已經改成你上傳的檔名了！
+FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
 @st.cache_resource
@@ -62,48 +60,25 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 4. 自動下載中文字體 (修復版) ---
-def check_and_download_font():
-    # 檢查檔案是否存在，如果存在但檔案太小(代表可能是壞檔)，就刪除重抓
-    if os.path.exists(FONT_FILE):
-        if os.path.getsize(FONT_FILE) < 1000: # 如果小於 1KB，肯定是壞檔
-            try:
-                os.remove(FONT_FILE)
-            except:
-                pass
-    
-    if not os.path.exists(FONT_FILE):
-        with st.spinner("正在下載中文字體檔 (Iansui)...這可能需要幾秒鐘"):
-            import requests
-            try:
-                r = requests.get(FONT_URL)
-                if r.status_code == 200:
-                    with open(FONT_FILE, 'wb') as f:
-                        f.write(r.content)
-                else:
-                    st.error(f"字體下載失敗，狀態碼: {r.status_code}")
-            except Exception as e:
-                st.warning(f"字體下載發生錯誤: {e}")
-
-# --- 5. PDF 生成功能 (適配 fpdf2) ---
+# --- 4. PDF 生成功能 (使用你上傳的字體) ---
 def create_pdf(selected_items):
-    check_and_download_font()
-    
     pdf = FPDF()
     pdf.add_page()
     
-    # 註冊中文字體
+    # 檢查字體檔是否存在
     if os.path.exists(FONT_FILE):
         try:
-            # fpdf2 的寫法
+            # 註冊字體 (fpdf2 語法)
             pdf.add_font('ChineseFont', '', FONT_FILE)
             pdf.set_font('ChineseFont', '', 14)
         except Exception as e:
-            st.error(f"字體載入失敗: {e}")
-            return None
+            # 如果字體載入失敗，回退英文以免當機
+            pdf.set_font("Helvetica", size=12)
+            pdf.cell(0, 10, txt=f"Font Error: {e}", ln=1, align='C')
     else:
-        st.error("找不到字體檔，無法產生中文 PDF。")
-        return None
+        # 如果找不到檔案
+        pdf.set_font("Helvetica", size=12)
+        pdf.cell(0, 10, txt="Error: TaipeiSansTCBeta-Regular.ttf not found.", ln=1, align='C')
 
     # 標題
     pdf.set_font_size(20)
@@ -116,11 +91,9 @@ def create_pdf(selected_items):
 
     # 表格標頭
     pdf.set_font_size(12)
-    # 設定橘色背景 (RGB)
-    pdf.set_fill_color(232, 139, 0) 
+    pdf.set_fill_color(232, 139, 0) # 橘色背景
     pdf.set_text_color(255, 255, 255) # 白色文字
     
-    # 定義欄寬
     col_w = [30, 70, 30, 30, 30] 
     headers = ["編號", "名稱", "分類", "狀態", "位置"]
     
@@ -140,11 +113,9 @@ def create_pdf(selected_items):
         
         pdf.cell(col_w[0], 10, uid, border=1, align='C')
         
-        # 處理名稱過長的問題 (簡單截斷，避免跑版)
-        if pdf.get_string_width(name) > col_w[1] - 2:
-            display_name = name[:10] + "..."
-        else:
-            display_name = name
+        # 處理名稱過長截斷
+        # 注意：如果名稱包含中文字，get_string_width 有時會誤判，這裡做簡單截斷
+        display_name = name if len(name) < 12 else name[:11] + "..."
             
         pdf.cell(col_w[1], 10, display_name, border=1, align='C')
         pdf.cell(col_w[2], 10, cat, border=1, align='C')
