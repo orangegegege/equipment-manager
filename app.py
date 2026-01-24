@@ -3,6 +3,8 @@ import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
 import time
+import os
+from fpdf import FPDF # 記得 pip install fpdf
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -10,10 +12,13 @@ import time
 NAV_HEIGHT = "80px"
 NAV_BG_COLOR = "#E88B00"       # 你的橘色
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
-LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png" # 你的 Logo
+LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png"
 
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
+
+# 字体檔案名稱 (程式會自動下載)
+FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
 @st.cache_resource
@@ -55,27 +60,100 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 頁面設定 (就是這裡修正了) ---
+# --- 4. 自動下載中文字體 (PDF用) ---
+def check_and_download_font():
+    if not os.path.exists(FONT_FILE):
+        with st.spinner("正在下載中文字體檔 (僅第一次需要)..."):
+            import requests
+            # 使用台北黑體 (開源)
+            url = "https://github.com/翰字鑄造/Taipei-Sans-TC/raw/master/fonts/TTF/TaipeiSansTCBeta-Regular.ttf"
+            try:
+                r = requests.get(url)
+                with open(FONT_FILE, 'wb') as f:
+                    f.write(r.content)
+            except:
+                st.warning("字體下載失敗，PDF 中文可能會無法顯示。")
+
+# --- 5. PDF 生成功能 ---
+def create_pdf(selected_items):
+    check_and_download_font()
+    
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # 註冊中文字體
+    if os.path.exists(FONT_FILE):
+        pdf.add_font('TaipeiSans', '', FONT_FILE, uni=True)
+        pdf.set_font('TaipeiSans', '', 14)
+    else:
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt="Error: Chinese font not found.", ln=1, align='C')
+
+    # 標題
+    pdf.set_font_size(20)
+    pdf.cell(200, 15, txt="團隊器材借用清單", ln=1, align='C')
+    
+    # 日期
+    pdf.set_font_size(10)
+    pdf.cell(200, 10, txt=f"匯出日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='C')
+    pdf.ln(10)
+
+    # 表格標頭
+    pdf.set_font_size(12)
+    pdf.set_fill_color(232, 139, 0) # 橘色背景
+    pdf.set_text_color(255, 255, 255) # 白色文字
+    
+    # 定義欄寬
+    col_w = [30, 70, 30, 30, 30] 
+    headers = ["編號", "名稱", "分類", "狀態", "位置"]
+    
+    for i, h in enumerate(headers):
+        pdf.cell(col_w[i], 10, h, 1, 0, 'C', 1)
+    pdf.ln()
+
+    # 表格內容
+    pdf.set_text_color(0, 0, 0) # 黑色文字
+    
+    for item in selected_items:
+        # 處理 None 值
+        uid = str(item.get('uid', ''))
+        name = str(item.get('name', ''))
+        cat = str(item.get('category', ''))
+        status = str(item.get('status', ''))
+        loc = str(item.get('location', ''))
+        
+        pdf.cell(col_w[0], 10, uid, 1, 0, 'C')
+        pdf.cell(col_w[1], 10, name, 1, 0, 'C') # 這裡如果字太多可能會超出，暫不處理換行
+        pdf.cell(col_w[2], 10, cat, 1, 0, 'C')
+        pdf.cell(col_w[3], 10, status, 1, 0, 'C')
+        pdf.cell(col_w[4], 10, loc, 1, 0, 'C')
+        pdf.ln()
+    
+    # 簽名區
+    pdf.ln(20)
+    pdf.cell(0, 10, "借用人簽名: _________________________", ln=1)
+    pdf.cell(0, 10, "管理員核准: _________________________", ln=1)
+
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 頁面設定 ---
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
+
+# 初始化購物車 Session
+if 'cart' not in st.session_state:
+    st.session_state.cart = set() # 使用 Set 來儲存 UID，避免重複
 
 # ==========================================
 # 🛠️ CSS 樣式表
 # ==========================================
 st.markdown(f"""
 <style>
-    /* 1. 隱藏預設 Header */
     header[data-testid="stHeader"] {{ display: none; }}
-
-    /* 2. 背景顏色 */
     .stApp {{ background-color: {PAGE_BG_COLOR} !important; }}
-
-    /* 3. 內容防擋 (往下推 100px) */
     .main .block-container {{
         padding-top: 100px !important; 
         max-width: 1200px !important;
     }}
-
-    /* 4. 固定導覽列 */
     #my-fixed-header {{
         position: fixed;
         top: 0;
@@ -88,9 +166,9 @@ st.markdown(f"""
         display: flex;
         align-items: center;
         padding-left: 30px;
+        padding-right: 30px;
+        justify-content: space-between; /* 讓內容左右分開 */
     }}
-
-    /* 5. 卡片美化 */
     div[data-testid="stVerticalBlockBorderWrapper"] {{
         background-color: white !important;
         border: 1px solid #ddd !important;
@@ -108,8 +186,6 @@ st.markdown(f"""
         color: white !important;
         border: none !important;
     }}
-    
-    /* 6. 分類標籤 (Pills) 美化 */
     div[data-testid="stPills"] button[aria-selected="true"] {{
         background-color: {NAV_BG_COLOR} !important;
         color: white !important;
@@ -124,6 +200,7 @@ if 'current_page' not in st.session_state: st.session_state.current_page = "home
 def go_to(page): st.session_state.current_page = page
 def perform_logout(): 
     st.session_state.is_admin = False
+    st.session_state.cart = set() # 登出時清空購物車
     go_to("home")
 def perform_login():
     if st.session_state.password_input == st.secrets["ADMIN_PASSWORD"]:
@@ -131,18 +208,71 @@ def perform_login():
         go_to("home")
     else: st.error("密碼錯誤")
 
+# 購物車操作函式
+def toggle_cart(uid):
+    if uid in st.session_state.cart:
+        st.session_state.cart.remove(uid)
+    else:
+        st.session_state.cart.add(uid)
+
 # ==========================================
-# Header 組件
+# 🔥 彈窗：檢視清單與匯出 PDF
 # ==========================================
-def render_header():
+@st.dialog("📋 借用清單預覽", width="large")
+def show_cart_modal(df):
+    if not st.session_state.cart:
+        st.info("清單目前是空的，請先勾選器材！")
+        if st.button("關閉"): st.rerun()
+    else:
+        # 篩選出購物車裡的資料
+        cart_items = df[df['uid'].isin(st.session_state.cart)]
+        
+        st.write(f"目前已選擇 {len(cart_items)} 項器材：")
+        st.dataframe(
+            cart_items[['uid', 'name', 'category', 'status', 'location']], 
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        col1, col2 = st.columns([1, 1])
+        
+        # 清空按鈕
+        if col1.button("🗑️ 清空清單", use_container_width=True):
+            st.session_state.cart = set()
+            st.rerun()
+            
+        # 下載 PDF 按鈕
+        pdf_bytes = create_pdf(cart_items.to_dict('records'))
+        col2.download_button(
+            label="📄 下載 PDF 清單",
+            data=pdf_bytes,
+            file_name=f"equipment_list_{int(time.time())}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
+        )
+
+# ==========================================
+# Header 組件 (更新：加入清單按鈕)
+# ==========================================
+def render_header(df_for_count=None):
+    # 計算目前選了幾個
+    count = len(st.session_state.cart)
+    
+    # 這裡我們用一個小技巧，在 Header 裡放一個 Streamlit button
+    # 但因為 Header 是 HTML 寫死的，我們用 CSS 把 Streamlit 的按鈕「浮」在右上角
+    # 或是更簡單的：直接在 Header 區域留一個區塊給 Streamlit 的按鈕
+    
     st.markdown(f"""
     <div id="my-fixed-header">
-        <img src="{LOGO_URL}" style="height: 60%; object-fit: contain;">
-    </div>
+        <div style="display:flex; align-items:center;">
+            <img src="{LOGO_URL}" style="height: 50px; object-fit: contain;">
+        </div>
+        </div>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🔥 彈窗 1：新增器材
+# 彈窗：新增/編輯 (保持不變)
 # ==========================================
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -150,102 +280,51 @@ def show_add_modal():
     with st.form("add_form", clear_on_submit=True):
         name = st.text_input("名稱", placeholder="例如：活動扳手")
         uid = st.text_input("編號", placeholder="例如：TOOL-001")
-        
         c1, c2 = st.columns(2)
         cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=None, placeholder="--請選擇--")
         status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=None, placeholder="--請選擇--")
-        
         c3, c4 = st.columns(2)
         qty = c3.number_input("數量", min_value=1, value=1, step=1)
         loc = c4.text_input("位置", value="儲藏室")
-        
         file = st.file_uploader("照片", type=['jpg','png'])
-        
         if st.form_submit_button("新增", type="primary", use_container_width=True):
             if name and uid and cat and status:
                 url = upload_image(file) if file else None
-                
-                data_payload = {
-                    "uid": uid, 
-                    "name": name, 
-                    "category": cat, 
-                    "status": status,
-                    "borrower": "", 
-                    "location": loc, 
-                    "quantity": qty, 
-                    "image_url": url,
-                    "updated_at": datetime.now().strftime("%Y-%m-%d")
-                }
-                
+                data_payload = {"uid": uid, "name": name, "category": cat, "status": status, "borrower": "", "location": loc, "quantity": qty, "image_url": url, "updated_at": datetime.now().strftime("%Y-%m-%d")}
                 try:
                     add_equipment_to_db(data_payload)
-                    st.toast(f"🎉 成功新增：{name}")
-                    time.sleep(1) 
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"寫入失敗: {e}")
-            else:
-                st.warning("⚠️ 請完整填寫名稱、編號，並選擇分類與狀態！")
+                    st.toast(f"🎉 成功新增：{name}"); time.sleep(1); st.rerun()
+                except Exception as e: st.error(f"寫入失敗: {e}")
+            else: st.warning("⚠️ 請完整填寫名稱、編號，並選擇分類與狀態！")
 
-# ==========================================
-# 🔥 彈窗 2：編輯/管理器材
-# ==========================================
 @st.dialog("⚙️ 編輯/管理器材", width="small")
 def show_edit_modal(item):
     st.caption(f"正在編輯：{item['name']} (#{item['uid']})")
-    
-    if item['image_url']:
-        st.image(item['image_url'], width=100)
-    
+    if item['image_url']: st.image(item['image_url'], width=100)
     with st.form("edit_form"):
         new_name = st.text_input("名稱", value=item['name'])
-        
         c1, c2 = st.columns(2)
-        
         try: cat_idx = CATEGORY_OPTIONS.index(item['category'])
         except: cat_idx = 0
         new_cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=cat_idx)
-        
         try: status_idx = ["在庫", "借出中", "維修中", "報廢"].index(item['status'])
         except: status_idx = 0
         new_status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=status_idx)
-        
         c3, c4 = st.columns(2)
         new_qty = c3.number_input("數量", min_value=1, value=item.get('quantity', 1), step=1)
         new_loc = c4.text_input("位置", value=item['location'] or "")
-        
         new_borrower = st.text_input("借用人 (若借出請填寫)", value=item['borrower'] or "")
-        
-        new_file = st.file_uploader("更換照片 (若不更改請留空)", type=['jpg','png'])
-        
+        new_file = st.file_uploader("更換照片", type=['jpg','png'])
         col_update, col_delete = st.columns([1, 1])
-        
         submitted = col_update.form_submit_button("💾 儲存更新", type="primary", use_container_width=True)
         delete_confirm = col_delete.checkbox("確認刪除此器材")
-
         if submitted:
             if delete_confirm:
-                delete_equipment_from_db(item['uid'])
-                st.toast("🗑️ 已刪除器材")
-                time.sleep(1)
-                st.rerun()
+                delete_equipment_from_db(item['uid']); st.toast("🗑️ 已刪除"); time.sleep(1); st.rerun()
             else:
                 final_url = upload_image(new_file) if new_file else item['image_url']
-                
-                updates = {
-                    "name": new_name,
-                    "category": new_cat,
-                    "status": new_status,
-                    "quantity": new_qty,
-                    "location": new_loc,
-                    "borrower": new_borrower,
-                    "image_url": final_url,
-                    "updated_at": datetime.now().strftime("%Y-%m-%d")
-                }
-                update_equipment_in_db(item['uid'], updates)
-                st.toast("✅ 資料已更新！")
-                time.sleep(1)
-                st.rerun()
+                updates = {"name": new_name, "category": new_cat, "status": new_status, "quantity": new_qty, "location": new_loc, "borrower": new_borrower, "image_url": final_url, "updated_at": datetime.now().strftime("%Y-%m-%d")}
+                update_equipment_in_db(item['uid'], updates); st.toast("✅ 更新成功"); time.sleep(1); st.rerun()
 
 # ==========================================
 # 主頁面
@@ -253,6 +332,34 @@ def show_edit_modal(item):
 def main_page():
     render_header()
     
+    # 用 CSS hack 把按鈕放在 Header 的右邊 (因為 st.button 不能直接放在 HTML 裡)
+    # 我們在頁面最上方創建一個 columns，然後用 CSS 把它的 z-index 拉高
+    
+    # 建立一個佔位區塊在 Header 上方
+    st.markdown("""
+        <style>
+        .header-buttons {
+            position: fixed;
+            top: 20px;
+            right: 30px;
+            z-index: 9999999;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # 讀取資料 (先讀取，因為要傳給按鈕用)
+    df = load_data()
+    
+    # 🔥🔥🔥 這是右上角的「清單按鈕」 🔥🔥🔥
+    with st.container():
+        st.markdown('<div class="header-buttons">', unsafe_allow_html=True)
+        # 如果不是管理員，顯示清單按鈕
+        if not st.session_state.is_admin:
+            cart_count = len(st.session_state.cart)
+            if st.button(f"📋 借用清單 ({cart_count})", type="primary"):
+                show_cart_modal(df)
+        st.markdown('</div>', unsafe_allow_html=True)
+
     # 標題與操作
     c_title, c_actions = st.columns([3, 1], vertical_alignment="bottom")
     with c_title:
@@ -265,14 +372,11 @@ def main_page():
         else:
             st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
 
-    # 讀取資料
-    df = load_data()
     
     # 儀表板
     if not df.empty:
         total = len(df)
         avail = len(df[df['status']=='在庫'])
-        
         m1, m2, m3, m4 = st.columns(4)
         with m1: 
             with st.container(border=True): st.metric("📦 總項目", total)
@@ -283,23 +387,16 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # ==========================================
-    # 🔥 搜尋與分類 (位置互換！)
-    # ==========================================
+    # 搜尋與分類
     st.write("")
     with st.container(border=True):
-        # 1. 搜尋框 (移到上面)
         search_query = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字 (名稱、編號)...", label_visibility="collapsed")
-        
-        st.write("") # 間距
-        
-        # 2. 分類標籤 (移到下面)
+        st.write("") 
         filter_options = ["全部顯示"] + CATEGORY_OPTIONS
         selected_category = st.pills("快速分類篩選", filter_options, default="全部顯示", label_visibility="collapsed")
 
     # 資料列表
     if not df.empty:
-        # 篩選邏輯
         if selected_category and selected_category != "全部顯示":
             filtered_df = df[df['category'] == selected_category]
         else:
@@ -311,7 +408,6 @@ def main_page():
                 filtered_df['uid'].str.contains(search_query, case=False)
             ]
         
-        # 顯示卡片
         if not filtered_df.empty:
             st.write("") 
             cols = st.columns(3)
@@ -331,11 +427,28 @@ def main_page():
 
                         if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
 
+                        st.markdown("---")
+                        
+                        # 🔥🔥🔥 關鍵區別：管理員 vs 一般人 🔥🔥🔥
                         if st.session_state.is_admin:
-                            st.markdown("---")
-                            # 編輯按鈕
+                            # 管理員：看到編輯按鈕
                             if st.button("⚙️ 編輯 / 管理", key=f"btn_{row['uid']}", use_container_width=True):
                                 show_edit_modal(row)
+                        else:
+                            # 一般人：看到勾選清單
+                            # 我們用 checkbox，並透過 key 來綁定狀態
+                            is_selected = row['uid'] in st.session_state.cart
+                            if st.checkbox("加入借用清單", key=f"check_{row['uid']}", value=is_selected):
+                                # 如果勾選
+                                if not is_selected:
+                                    st.session_state.cart.add(row['uid'])
+                                    st.rerun() # 重新整理以更新右上角數字
+                            else:
+                                # 如果取消勾選
+                                if is_selected:
+                                    st.session_state.cart.remove(row['uid'])
+                                    st.rerun()
+                                    
         else:
             if selected_category != "全部顯示":
                 st.info(f"📂 「{selected_category}」分類下目前沒有器材。")
