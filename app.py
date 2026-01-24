@@ -5,12 +5,15 @@ from datetime import datetime
 import time
 
 # ==========================================
-# 🎨 [色彩與基本設定] (保留你的設定)
+# 🎨 [色彩與基本設定]
 # ==========================================
 NAV_HEIGHT = "80px"
 NAV_BG_COLOR = "#E88B00"       # 你的橘色
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png" # 你的 Logo
+
+# 🔥 統一管理的分類清單 (新增跟篩選都用這份，方便管理)
+CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
 # --- 1. Supabase 連線 ---
 @st.cache_resource
@@ -105,6 +108,14 @@ st.markdown(f"""
         color: white !important;
         border: none !important;
     }}
+    
+    /* 6. 分類標籤 (Pills) 美化 */
+    /* 讓選中的標籤變成橘色 */
+    div[data-testid="stPills"] button[aria-selected="true"] {{
+        background-color: {NAV_BG_COLOR} !important;
+        color: white !important;
+        border-color: {NAV_BG_COLOR} !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -138,11 +149,13 @@ def render_header():
 def show_add_modal():
     st.caption("填寫詳細資訊")
     with st.form("add_form", clear_on_submit=True):
-        name = st.text_input("名稱", placeholder="例如：無線麥克風")
-        uid = st.text_input("編號", placeholder="例如：MIC-001")
+        name = st.text_input("名稱", placeholder="例如：活動扳手")
+        uid = st.text_input("編號", placeholder="例如：TOOL-001")
         
         c1, c2 = st.columns(2)
-        cat = c1.selectbox("分類", ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"], index=None, placeholder="--請選擇--")
+        
+        # 🔥 使用全域變數 CATEGORY_OPTIONS，確保分類一致
+        cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=None, placeholder="--請選擇--")
         status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=None, placeholder="--請選擇--")
         
         c3, c4 = st.columns(2)
@@ -169,7 +182,7 @@ def show_add_modal():
                 
                 try:
                     add_equipment_to_db(data_payload)
-                    st.toast(f"🎉 成功新增：{name} (數量: {qty})")
+                    st.toast(f"🎉 成功新增：{name}")
                     time.sleep(1) 
                     st.rerun()
                 except Exception as e:
@@ -213,65 +226,94 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # 搜尋
+    # ==========================================
+    # 🔥🔥🔥 搜尋與分類篩選區 (仿 Adidas) 🔥🔥🔥
+    # ==========================================
     st.write("")
     with st.container(border=True):
-        search = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字...", label_visibility="collapsed")
+        # 1. 分類標籤列 (使用 st.pills，這是目前最新、最像 App 篩選的元件)
+        # 我們把「全部顯示」加到選項的最前面
+        filter_options = ["全部顯示"] + CATEGORY_OPTIONS
+        
+        # 顯示膠囊按鈕，預設選「全部顯示」
+        selected_category = st.pills("快速分類篩選", filter_options, default="全部顯示", label_visibility="collapsed")
+        
+        st.write("") # 小留白
+        
+        # 2. 關鍵字搜尋框
+        search_query = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字 (名稱、編號)...", label_visibility="collapsed")
 
-    # 列表
+    # ==========================================
+    # 🔄 資料篩選邏輯
+    # ==========================================
     if not df.empty:
-        res = df[df['name'].str.contains(search, case=False) | df['uid'].str.contains(search, case=False)] if search else df
-        st.write("") 
-        cols = st.columns(3)
-        for i, row in res.iterrows():
-            with cols[i%3]:
-                with st.container(border=True):
-                    img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
-                    st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
-                    st.markdown(f"#### {row['name']}")
-                    
-                    qty_display = f" | 數量: {row.get('quantity', 1)}" if row.get('quantity') else ""
-                    st.caption(f"#{row['uid']} {qty_display} | 📍 {row['location']}")
-                    
-                    status_map = {"在庫":"green", "借出中":"red", "維修中":"orange", "報廢":"grey"}
-                    color = status_map.get(row['status'], "black")
-                    st.markdown(f':{color}[● {row["status"]}]')
+        # 第一步：先過濾分類
+        if selected_category and selected_category != "全部顯示":
+            # 篩選出 category 欄位等於所選分類的資料
+            filtered_df = df[df['category'] == selected_category]
+        else:
+            # 如果選全部，就保留原本的 df
+            filtered_df = df
 
-                    if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
+        # 第二步：再過濾關鍵字 (在分類篩選的基礎上繼續篩選)
+        if search_query:
+            filtered_df = filtered_df[
+                filtered_df['name'].str.contains(search_query, case=False) | 
+                filtered_df['uid'].str.contains(search_query, case=False)
+            ]
+        
+        # 第三步：顯示結果
+        if not filtered_df.empty:
+            st.write("") 
+            cols = st.columns(3)
+            # 使用 enumerate 配合 iterrows 確保排版正確
+            for i, (index, row) in enumerate(filtered_df.iterrows()):
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
+                        st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
+                        st.markdown(f"#### {row['name']}")
+                        
+                        qty_display = f" | 數量: {row.get('quantity', 1)}" if row.get('quantity') else ""
+                        st.caption(f"#{row['uid']} {qty_display} | 📍 {row['location']}")
+                        
+                        status_map = {"在庫":"green", "借出中":"red", "維修中":"orange", "報廢":"grey"}
+                        color = status_map.get(row['status'], "black")
+                        st.markdown(f':{color}[● {row["status"]}]')
 
-                    if st.session_state.is_admin:
-                        st.markdown("---")
-                        with st.expander("⚙️ 管理"):
-                            # 取得目前狀態的 index
-                            try:
-                                current_status_idx = ["在庫","借出中","維修中","報廢"].index(row['status'])
-                            except:
-                                current_status_idx = 0
-                            
-                            # 🔥🔥🔥 這裡就是你原本缺少的部分！ 🔥🔥🔥
-                            # 我把管理區分成兩欄：左邊改狀態，右邊改數量
-                            c_admin_1, c_admin_2 = st.columns(2)
-                            
-                            ns = c_admin_1.selectbox("狀態", ["在庫","借出中","維修中","報廢"], key=f"s{row['uid']}", index=current_status_idx)
-                            
-                            # 這裡加入數量調整欄位，預設值抓取目前資料庫的數值
-                            current_qty = row.get('quantity', 1) if row.get('quantity') else 1
-                            nq = c_admin_2.number_input("數量", min_value=1, step=1, value=current_qty, key=f"q{row['uid']}")
-                            
-                            # 借用人輸入框
-                            nb = st.text_input("借用人", value=row['borrower'] or "", key=f"b{row['uid']}")
-                            
-                            b1, b2 = st.columns(2)
-                            if b1.button("更新", key=f"u{row['uid']}", use_container_width=True):
-                                # 🔥 更新時，把新的數量 nq 也一起寫入資料庫
-                                update_equipment_in_db(row['uid'], {"status":ns, "borrower":nb, "quantity": nq})
-                                st.toast("更新成功")
-                                st.rerun()
+                        if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
+
+                        if st.session_state.is_admin:
+                            st.markdown("---")
+                            with st.expander("⚙️ 管理"):
+                                try:
+                                    current_status_idx = ["在庫","借出中","維修中","報廢"].index(row['status'])
+                                except:
+                                    current_status_idx = 0
                                 
-                            if b2.button("刪除", key=f"d{row['uid']}", type="primary", use_container_width=True):
-                                delete_equipment_from_db(row['uid'])
-                                st.toast("已刪除")
-                                st.rerun()
+                                c_admin_1, c_admin_2 = st.columns(2)
+                                ns = c_admin_1.selectbox("狀態", ["在庫","借出中","維修中","報廢"], key=f"s{row['uid']}", index=current_status_idx)
+                                
+                                current_qty = row.get('quantity', 1) if row.get('quantity') else 1
+                                nq = c_admin_2.number_input("數量", min_value=1, step=1, value=current_qty, key=f"q{row['uid']}")
+                                
+                                nb = st.text_input("借用人", value=row['borrower'] or "", key=f"b{row['uid']}")
+                                
+                                b1, b2 = st.columns(2)
+                                if b1.button("更新", key=f"u{row['uid']}", use_container_width=True):
+                                    update_equipment_in_db(row['uid'], {"status":ns, "borrower":nb, "quantity": nq})
+                                    st.toast("更新成功")
+                                    st.rerun()
+                                if b2.button("刪除", key=f"d{row['uid']}", type="primary", use_container_width=True):
+                                    delete_equipment_from_db(row['uid'])
+                                    st.toast("已刪除")
+                                    st.rerun()
+        else:
+            # 這裡顯示更友善的提示，告訴使用者是分類沒東西還是搜尋沒東西
+            if selected_category != "全部顯示":
+                st.info(f"📂 「{selected_category}」分類下目前沒有器材。")
+            else:
+                st.info("尚無符合搜尋條件的資料。")
     else: st.info("尚無資料")
 
 # ==========================================
