@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import datetime
 import time
 import os
-from fpdf import FPDF # 記得 pip install fpdf
+from fpdf import FPDF # 這裡是使用 fpdf2
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -17,8 +17,9 @@ LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/lo
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
-# 字体檔案名稱 (程式會自動下載)
-FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
+# 字體設定 (改用 Google Noto Sans TC)
+FONT_FILE = "NotoSansTC-Regular.ttf"
+FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanstc/NotoSansTC-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
 @st.cache_resource
@@ -60,21 +61,30 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 4. 自動下載中文字體 (PDF用) ---
+# --- 4. 自動下載中文字體 (修復版) ---
 def check_and_download_font():
-    if not os.path.exists(FONT_FILE):
-        with st.spinner("正在下載中文字體檔 (僅第一次需要)..."):
-            import requests
-            # 使用台北黑體 (開源)
-            url = "https://github.com/翰字鑄造/Taipei-Sans-TC/raw/master/fonts/TTF/TaipeiSansTCBeta-Regular.ttf"
+    # 檢查檔案是否存在，如果存在但檔案太小(代表可能是壞檔)，就刪除重抓
+    if os.path.exists(FONT_FILE):
+        if os.path.getsize(FONT_FILE) < 1000000: # 如果小於 1MB，通常是壞檔
             try:
-                r = requests.get(url)
-                with open(FONT_FILE, 'wb') as f:
-                    f.write(r.content)
+                os.remove(FONT_FILE)
             except:
-                st.warning("字體下載失敗，PDF 中文可能會無法顯示。")
+                pass
+    
+    if not os.path.exists(FONT_FILE):
+        with st.spinner("正在下載中文字體檔 (Google Noto Sans)...請稍候"):
+            import requests
+            try:
+                r = requests.get(FONT_URL)
+                if r.status_code == 200:
+                    with open(FONT_FILE, 'wb') as f:
+                        f.write(r.content)
+                else:
+                    st.error(f"字體下載失敗，狀態碼: {r.status_code}")
+            except Exception as e:
+                st.warning(f"字體下載發生錯誤: {e}")
 
-# --- 5. PDF 生成功能 ---
+# --- 5. PDF 生成功能 (適配 fpdf2) ---
 def create_pdf(selected_items):
     check_and_download_font()
     
@@ -83,24 +93,27 @@ def create_pdf(selected_items):
     
     # 註冊中文字體
     if os.path.exists(FONT_FILE):
-        pdf.add_font('TaipeiSans', '', FONT_FILE, uni=True)
-        pdf.set_font('TaipeiSans', '', 14)
+        # fpdf2 的寫法
+        pdf.add_font('NotoSans', '', FONT_FILE)
+        pdf.set_font('NotoSans', '', 14)
     else:
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="Error: Chinese font not found.", ln=1, align='C')
+        # 如果真的下載失敗，回退到英文，避免當機
+        pdf.set_font("Helvetica", size=12)
+        pdf.cell(0, 10, txt="Error: Chinese font not found (Download failed).", ln=1, align='C')
 
     # 標題
     pdf.set_font_size(20)
-    pdf.cell(200, 15, txt="團隊器材借用清單", ln=1, align='C')
+    pdf.cell(0, 15, txt="團隊器材借用清單", ln=1, align='C')
     
     # 日期
     pdf.set_font_size(10)
-    pdf.cell(200, 10, txt=f"匯出日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='C')
+    pdf.cell(0, 10, txt=f"匯出日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='C')
     pdf.ln(10)
 
     # 表格標頭
     pdf.set_font_size(12)
-    pdf.set_fill_color(232, 139, 0) # 橘色背景
+    # 設定橘色背景 (RGB)
+    pdf.set_fill_color(232, 139, 0) 
     pdf.set_text_color(255, 255, 255) # 白色文字
     
     # 定義欄寬
@@ -108,25 +121,31 @@ def create_pdf(selected_items):
     headers = ["編號", "名稱", "分類", "狀態", "位置"]
     
     for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 10, h, 1, 0, 'C', 1)
+        pdf.cell(col_w[i], 10, h, border=1, align='C', fill=True)
     pdf.ln()
 
     # 表格內容
     pdf.set_text_color(0, 0, 0) # 黑色文字
     
     for item in selected_items:
-        # 處理 None 值
         uid = str(item.get('uid', ''))
         name = str(item.get('name', ''))
         cat = str(item.get('category', ''))
         status = str(item.get('status', ''))
         loc = str(item.get('location', ''))
         
-        pdf.cell(col_w[0], 10, uid, 1, 0, 'C')
-        pdf.cell(col_w[1], 10, name, 1, 0, 'C') # 這裡如果字太多可能會超出，暫不處理換行
-        pdf.cell(col_w[2], 10, cat, 1, 0, 'C')
-        pdf.cell(col_w[3], 10, status, 1, 0, 'C')
-        pdf.cell(col_w[4], 10, loc, 1, 0, 'C')
+        pdf.cell(col_w[0], 10, uid, border=1, align='C')
+        
+        # 處理名稱過長的問題 (簡單截斷，避免跑版)
+        if pdf.get_string_width(name) > col_w[1] - 2:
+            display_name = name[:10] + "..."
+        else:
+            display_name = name
+            
+        pdf.cell(col_w[1], 10, display_name, border=1, align='C')
+        pdf.cell(col_w[2], 10, cat, border=1, align='C')
+        pdf.cell(col_w[3], 10, status, border=1, align='C')
+        pdf.cell(col_w[4], 10, loc, border=1, align='C')
         pdf.ln()
     
     # 簽名區
@@ -134,14 +153,14 @@ def create_pdf(selected_items):
     pdf.cell(0, 10, "借用人簽名: _________________________", ln=1)
     pdf.cell(0, 10, "管理員核准: _________________________", ln=1)
 
-    return pdf.output(dest='S').encode('latin-1')
+    return pdf.output()
 
 # --- 頁面設定 ---
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # 初始化購物車 Session
 if 'cart' not in st.session_state:
-    st.session_state.cart = set() # 使用 Set 來儲存 UID，避免重複
+    st.session_state.cart = set() 
 
 # ==========================================
 # 🛠️ CSS 樣式表
@@ -167,7 +186,7 @@ st.markdown(f"""
         align-items: center;
         padding-left: 30px;
         padding-right: 30px;
-        justify-content: space-between; /* 讓內容左右分開 */
+        justify-content: space-between; 
     }}
     div[data-testid="stVerticalBlockBorderWrapper"] {{
         background-color: white !important;
@@ -200,7 +219,7 @@ if 'current_page' not in st.session_state: st.session_state.current_page = "home
 def go_to(page): st.session_state.current_page = page
 def perform_logout(): 
     st.session_state.is_admin = False
-    st.session_state.cart = set() # 登出時清空購物車
+    st.session_state.cart = set()
     go_to("home")
 def perform_login():
     if st.session_state.password_input == st.secrets["ADMIN_PASSWORD"]:
@@ -208,15 +227,8 @@ def perform_login():
         go_to("home")
     else: st.error("密碼錯誤")
 
-# 購物車操作函式
-def toggle_cart(uid):
-    if uid in st.session_state.cart:
-        st.session_state.cart.remove(uid)
-    else:
-        st.session_state.cart.add(uid)
-
 # ==========================================
-# 🔥 彈窗：檢視清單與匯出 PDF
+# 彈窗：檢視清單與匯出 PDF
 # ==========================================
 @st.dialog("📋 借用清單預覽", width="large")
 def show_cart_modal(df):
@@ -224,55 +236,46 @@ def show_cart_modal(df):
         st.info("清單目前是空的，請先勾選器材！")
         if st.button("關閉"): st.rerun()
     else:
-        # 篩選出購物車裡的資料
         cart_items = df[df['uid'].isin(st.session_state.cart)]
-        
         st.write(f"目前已選擇 {len(cart_items)} 項器材：")
         st.dataframe(
             cart_items[['uid', 'name', 'category', 'status', 'location']], 
             hide_index=True,
             use_container_width=True
         )
-        
         col1, col2 = st.columns([1, 1])
-        
-        # 清空按鈕
         if col1.button("🗑️ 清空清單", use_container_width=True):
             st.session_state.cart = set()
             st.rerun()
-            
-        # 下載 PDF 按鈕
-        pdf_bytes = create_pdf(cart_items.to_dict('records'))
-        col2.download_button(
-            label="📄 下載 PDF 清單",
-            data=pdf_bytes,
-            file_name=f"equipment_list_{int(time.time())}.pdf",
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True
-        )
+        
+        # 產生 PDF
+        try:
+            pdf_bytes = create_pdf(cart_items.to_dict('records'))
+            col2.download_button(
+                label="📄 下載 PDF 清單",
+                data=bytes(pdf_bytes), # 確保轉換為 bytes
+                file_name=f"equipment_list_{int(time.time())}.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.error(f"PDF 產生失敗: {e}")
 
 # ==========================================
-# Header 組件 (更新：加入清單按鈕)
+# Header 組件
 # ==========================================
 def render_header(df_for_count=None):
-    # 計算目前選了幾個
-    count = len(st.session_state.cart)
-    
-    # 這裡我們用一個小技巧，在 Header 裡放一個 Streamlit button
-    # 但因為 Header 是 HTML 寫死的，我們用 CSS 把 Streamlit 的按鈕「浮」在右上角
-    # 或是更簡單的：直接在 Header 區域留一個區塊給 Streamlit 的按鈕
-    
     st.markdown(f"""
     <div id="my-fixed-header">
         <div style="display:flex; align-items:center;">
             <img src="{LOGO_URL}" style="height: 50px; object-fit: contain;">
         </div>
-        </div>
+    </div>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 彈窗：新增/編輯 (保持不變)
+# 彈窗：新增/編輯
 # ==========================================
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -332,10 +335,6 @@ def show_edit_modal(item):
 def main_page():
     render_header()
     
-    # 用 CSS hack 把按鈕放在 Header 的右邊 (因為 st.button 不能直接放在 HTML 裡)
-    # 我們在頁面最上方創建一個 columns，然後用 CSS 把它的 z-index 拉高
-    
-    # 建立一個佔位區塊在 Header 上方
     st.markdown("""
         <style>
         .header-buttons {
@@ -347,20 +346,16 @@ def main_page():
         </style>
     """, unsafe_allow_html=True)
     
-    # 讀取資料 (先讀取，因為要傳給按鈕用)
     df = load_data()
     
-    # 🔥🔥🔥 這是右上角的「清單按鈕」 🔥🔥🔥
     with st.container():
         st.markdown('<div class="header-buttons">', unsafe_allow_html=True)
-        # 如果不是管理員，顯示清單按鈕
         if not st.session_state.is_admin:
             cart_count = len(st.session_state.cart)
             if st.button(f"📋 借用清單 ({cart_count})", type="primary"):
                 show_cart_modal(df)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 標題與操作
     c_title, c_actions = st.columns([3, 1], vertical_alignment="bottom")
     with c_title:
         st.title("團隊器材中心")
@@ -372,8 +367,6 @@ def main_page():
         else:
             st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
 
-    
-    # 儀表板
     if not df.empty:
         total = len(df)
         avail = len(df[df['status']=='在庫'])
@@ -387,7 +380,6 @@ def main_page():
         with m4: 
             with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
 
-    # 搜尋與分類
     st.write("")
     with st.container(border=True):
         search_query = st.text_input("🔍 搜尋器材...", placeholder="輸入關鍵字 (名稱、編號)...", label_visibility="collapsed")
@@ -395,7 +387,6 @@ def main_page():
         filter_options = ["全部顯示"] + CATEGORY_OPTIONS
         selected_category = st.pills("快速分類篩選", filter_options, default="全部顯示", label_visibility="collapsed")
 
-    # 資料列表
     if not df.empty:
         if selected_category and selected_category != "全部顯示":
             filtered_df = df[df['category'] == selected_category]
@@ -417,10 +408,8 @@ def main_page():
                         img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                         st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
-                        
                         qty_display = f" | 數量: {row.get('quantity', 1)}" if row.get('quantity') else ""
                         st.caption(f"#{row['uid']} {qty_display} | 📍 {row['location']}")
-                        
                         status_map = {"在庫":"green", "借出中":"red", "維修中":"orange", "報廢":"grey"}
                         color = status_map.get(row['status'], "black")
                         st.markdown(f':{color}[● {row["status"]}]')
@@ -428,23 +417,16 @@ def main_page():
                         if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
 
                         st.markdown("---")
-                        
-                        # 🔥🔥🔥 關鍵區別：管理員 vs 一般人 🔥🔥🔥
                         if st.session_state.is_admin:
-                            # 管理員：看到編輯按鈕
                             if st.button("⚙️ 編輯 / 管理", key=f"btn_{row['uid']}", use_container_width=True):
                                 show_edit_modal(row)
                         else:
-                            # 一般人：看到勾選清單
-                            # 我們用 checkbox，並透過 key 來綁定狀態
                             is_selected = row['uid'] in st.session_state.cart
                             if st.checkbox("加入借用清單", key=f"check_{row['uid']}", value=is_selected):
-                                # 如果勾選
                                 if not is_selected:
                                     st.session_state.cart.add(row['uid'])
-                                    st.rerun() # 重新整理以更新右上角數字
+                                    st.rerun() 
                             else:
-                                # 如果取消勾選
                                 if is_selected:
                                     st.session_state.cart.remove(row['uid'])
                                     st.rerun()
