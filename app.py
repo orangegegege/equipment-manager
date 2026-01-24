@@ -140,7 +140,7 @@ def show_add_modal():
         name = st.text_input("名稱")
         uid = st.text_input("編號")
         c1, c2 = st.columns(2)
-        cat = c1.selectbox("分類", ["攝影", "燈光", "線材", "電腦", "其他"])
+        cat = c1.selectbox("分類", ["課程手工具", "一般器材", "文具", "團康道具", "廚具", "清潔用具"])
         status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"])
         loc = st.text_input("位置", value="儲藏室")
         file = st.file_uploader("照片", type=['jpg','png'])
@@ -244,6 +244,7 @@ def login_page():
 
 if st.session_state.current_page == "login": login_page()
 else: main_page()
+
 
 
 
