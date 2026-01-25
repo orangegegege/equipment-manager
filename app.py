@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from datetime import datetime
+from datetime import datetime, timedelta # 引入 timedelta 處理時差
 import time
 import os
 import io 
@@ -70,13 +70,23 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
+# --- 輔助函式：取得台灣時間字串 ---
+def get_taiwan_time_str():
+    # UTC 時間 + 8 小時
+    tw_time = datetime.utcnow() + timedelta(hours=8)
+    return tw_time.strftime('%Y-%m-%d %H:%M')
+
+def get_today_str():
+    tw_time = datetime.utcnow() + timedelta(hours=8)
+    return tw_time.strftime('%Y-%m-%d')
+
 # ==========================================
-# 4. PDF 生成功能 (維持完美版)
+# 4. PDF 生成功能 (智慧跨頁版)
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__(orientation='L', unit='mm', format='A4')
-        self.set_auto_page_break(auto=True, margin=35) 
+        self.set_auto_page_break(auto=False) # 🔥 重要：我們要自己控制換頁，才能處理跨頁標題
 
     def header(self):
         if os.path.exists(FONT_FILE):
@@ -90,7 +100,8 @@ class PDFReport(FPDF):
         self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
         
         self.set_font_size(10)
-        self.cell(0, 8, txt=f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='R')
+        # 🔥 使用台灣時間
+        self.cell(0, 8, txt=f"製表日期: {get_taiwan_time_str()}", ln=1, align='R')
         
         self.line(10, self.get_y(), 287, self.get_y())
         self.ln(2)
@@ -138,6 +149,15 @@ def create_pdf(sorted_items, text_display_map):
     pdf.set_fill_color(245, 245, 245)
 
     for i in range(total_rows):
+        # 🔥 檢查是否需要換頁 (A4 橫向高度 210mm，扣到底部留白約 175mm 為安全線)
+        if pdf.get_y() > 170:
+            pdf.add_page()
+            # 換頁後，這一行必須被視為「新區塊的開始」
+            # 我們設一個標記，強制這一行畫頂線並顯示文字
+            force_new_page_header = True
+        else:
+            force_new_page_header = False
+
         item = sorted_items[i]
         
         uid = str(item.get('uid', ''))
@@ -145,17 +165,41 @@ def create_pdf(sorted_items, text_display_map):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
+        # 邊框邏輯
         draw_top = False
         draw_bottom = False
-        if i == 0 or sorted_items[i-1].get('category') != cat: draw_top = True
-        if i == total_rows - 1 or sorted_items[i+1].get('category') != cat: draw_bottom = True
+        
+        # 1. 正常邏輯：第一行或分類改變
+        if i == 0 or sorted_items[i-1].get('category') != cat: 
+            draw_top = True
+        
+        # 2. 🔥 強制邏輯：如果剛剛換頁了，就算分類跟上一行一樣，也要畫頂線
+        if force_new_page_header:
+            draw_top = True
+
+        # 3. 正常邏輯：最後一行或下一行分類改變
+        if i == total_rows - 1 or sorted_items[i+1].get('category') != cat: 
+            draw_bottom = True
+            
+        # 4. 🔥 強制邏輯：如果下一行會爆頁 (簡單預判)，這一行要畫底線 (封口)
+        # 預判下一行的高度 = 目前高度 + 10
+        if pdf.get_y() + 10 > 170 and not draw_bottom:
+            draw_bottom = True
 
         cat_border = 'LR' 
         if draw_top: cat_border += 'T'
         if draw_bottom: cat_border += 'B'
         
+        # 文字顯示邏輯
+        # 原本是只在「中心點」顯示
         cat_display = text_display_map.get(i, "")
         
+        # 🔥 修正：如果這一行是換頁後的第一行，且原本計算不該顯示文字(因為中心點在上一頁)，
+        # 這裡要強制顯示，不然新頁面的第一格會是空白的
+        if force_new_page_header:
+            cat_display = cat
+        
+        # 開始列印
         pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=False)
         pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
         
@@ -175,10 +219,9 @@ def create_pdf(sorted_items, text_display_map):
     return pdf.output()
 
 # ==========================================
-# 🔥 5. Word 生成功能 (專業美化版)
+# 🔥 5. Word 生成功能 (細節優化版)
 # ==========================================
 
-# 輔助函式：設定 Word 儲存格背景顏色
 def set_cell_bg(cell, color_hex):
     shading_elm = OxmlElement('w:shd')
     shading_elm.set(qn('w:val'), 'clear')
@@ -189,7 +232,6 @@ def set_cell_bg(cell, color_hex):
 def create_word(sorted_items):
     doc = Document()
     
-    # 1. 設定版面為 A4 橫向
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Mm(297)
@@ -199,38 +241,32 @@ def create_word(sorted_items):
     section.top_margin = Mm(15)
     section.bottom_margin = Mm(15)
 
-    # 2. 標題
     heading = doc.add_paragraph("團隊器材借用 / 清點單")
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = heading.runs[0]
     run.font.size = Pt(24)
-    run.font.name = "Microsoft JhengHei" # 設定字體
+    run.font.name = "Microsoft JhengHei" 
     run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     run.bold = True
     
-    # 3. 日期 (靠右)
-    date_para = doc.add_paragraph(f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # 🔥 使用台灣時間
+    date_para = doc.add_paragraph(f"製表日期: {get_taiwan_time_str()}")
     date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     
-    # 4. 建立表格 (7欄)
     table = doc.add_table(rows=1, cols=7)
     table.style = 'Table Grid'
-    table.autofit = False # 關閉自動調整，手動設寬度
+    table.autofit = False 
     
-    # --- 表頭設定 ---
     headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
-    # 設定欄寬權重 (總合 100)
     widths = [12, 10, 30, 8, 13, 13, 13] 
-    total_width_mm = 273 # A4橫寬 297 - 邊界 24
+    total_width_mm = 273 
     
     hdr_row = table.rows[0]
     for i, text in enumerate(headers):
         cell = hdr_row.cells[i]
         cell.text = text
-        # 設定背景色 (橘色 E88B00)
         set_cell_bg(cell, "E88B00")
         
-        # 設定文字格式 (白色、粗體、置中)
         para = cell.paragraphs[0]
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = para.runs[0]
@@ -240,72 +276,44 @@ def create_word(sorted_items):
         run.font.name = "Microsoft JhengHei"
         run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
         
-        # 設定欄寬
         cell.width = Mm(total_width_mm * widths[i] / 100)
 
-    # --- 5. 填入資料 (含合併儲存格) ---
-    current_cat_start_row = 1 # 資料從第 1 列開始 (第 0 列是表頭)
-    
     for idx, item in enumerate(sorted_items):
         row_cells = table.add_row().cells
         
-        # 填入資料
         row_cells[0].text = item.get('category', '')
         row_cells[1].text = str(item.get('uid', ''))
         row_cells[2].text = str(item.get('name', ''))
         row_cells[3].text = str(item.get('quantity', '1'))
         
-        # 設定每個儲存格的樣式 (垂直置中)
         for i, cell in enumerate(row_cells):
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
             cell.width = Mm(total_width_mm * widths[i] / 100)
             
-            # 設定字體
             run = cell.paragraphs[0].runs[0] if cell.paragraphs[0].runs else cell.paragraphs[0].add_run()
             run.font.name = "Microsoft JhengHei"
             run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
 
-        # --- 合併邏輯 ---
-        # 如果不是第一筆資料，且分類跟上一筆一樣 -> 執行合併
-        if idx > 0 and item.get('category') == sorted_items[idx-1].get('category'):
-            # 取得上一列的分類儲存格
-            prev_cell = table.rows[current_cat_start_row + (idx - (idx - (len(table.rows)-2))) -1].cells[0] 
-            # Word 的 merge 很直覺：把這一格合併到上一組的起點
-            # 實際上只要 merge 到「目前的分類起點」即可
-            
-            # 簡單做法：每次都跟「上一列」的分類格合併
-            # 但為了保持文字置中，最好的做法是 merge 整個區塊
-            pass 
-        else:
-            # 分類改變了，更新起點索引
-            # (因為我們是一行一行加，Word 的 merge 是 merge_to，所以我們需要在迴圈當下處理)
-            pass
-
-    # 🔥 重新處理合併：Word 比較適合「全部資料填完後，再來掃描合併」
-    # 這樣才不會亂掉
-    
-    # 掃描第一欄 (Category)
+    # Word 的跨頁合併處理比較複雜，這裡採用標準合併
+    # 如果 Word 自動跨頁，它會自己處理文字顯示，我們較難強制控制
     col_idx = 0
-    start_row = 1 # 跳過表頭
+    start_row = 1 
     while start_row < len(table.rows):
         cat_text = table.rows[start_row].cells[col_idx].text
         end_row = start_row + 1
         
         while end_row < len(table.rows) and table.rows[end_row].cells[col_idx].text == cat_text:
-            # 清空文字，避免合併後重複出現
             table.rows[end_row].cells[col_idx].text = "" 
             end_row += 1
         
-        # 執行合併 (從 start_row 合併到 end_row - 1)
         if end_row > start_row + 1:
             table.rows[start_row].cells[col_idx].merge(table.rows[end_row - 1].cells[col_idx])
         
         start_row = end_row
 
-    # 6. 頁尾簽名區
-    doc.add_paragraph("\n") # 空行
-    doc.add_paragraph("_" * 125) # 分隔線
+    doc.add_paragraph("\n") 
+    doc.add_paragraph("_" * 125) 
     
     sig_table = doc.add_table(rows=1, cols=3)
     sig_table.autofit = True
@@ -320,11 +328,9 @@ def create_word(sorted_items):
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     
-    # 強制左中右對齊
     sig_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
     sig_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    # 存檔
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
@@ -448,6 +454,9 @@ def show_cart_modal(df):
             st.write("") 
             st.write("") 
             
+            # 🔥 產生當天日期的檔名
+            today_date = get_today_str()
+            
             if export_format == "PDF 文件 (.pdf)":
                 try:
                     pdf_bytes = create_pdf(sorted_items, text_display_map)
@@ -455,7 +464,7 @@ def show_cart_modal(df):
                         st.download_button(
                             label="⬇️ 下載 PDF 清單",
                             data=bytes(pdf_bytes), 
-                            file_name=f"list_{int(time.time())}.pdf",
+                            file_name=f"equipment_list_{today_date}.pdf",
                             mime="application/pdf",
                             type="primary",
                             use_container_width=True
@@ -465,11 +474,11 @@ def show_cart_modal(df):
                     
             elif export_format == "Word 文件 (.docx)":
                 try:
-                    word_bytes = create_word(sorted_items) # Word 不需要 map，有自己的合併邏輯
+                    word_bytes = create_word(sorted_items)
                     st.download_button(
                         label="⬇️ 下載 Word 清單",
                         data=word_bytes,
-                        file_name=f"list_{int(time.time())}.docx",
+                        file_name=f"equipment_list_{today_date}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary",
                         use_container_width=True
