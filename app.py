@@ -60,67 +60,98 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 4. PDF 生成功能 (合併儲存格 + 頁尾固定版) ---
+# ==========================================
+# 🔥 4. PDF 生成功能 (專業報表版)
+# ==========================================
+class PDFReport(FPDF):
+    def __init__(self):
+        super().__init__(orientation='L', unit='mm', format='A4')
+        self.set_auto_page_break(auto=True, margin=35) # 底部留 35mm 給簽名
+
+    def header(self):
+        # --- 頁首 (標題 + 日期 + 表格標題) ---
+        # 1. 載入字體 (因為 header 在每一頁都會執行，所以要確保字體可用)
+        if os.path.exists(FONT_FILE):
+            try:
+                self.add_font('ChineseFont', '', FONT_FILE)
+                self.set_font('ChineseFont', '', 12)
+            except:
+                self.set_font("Helvetica", size=12)
+        
+        # 2. 大標題
+        self.set_font_size(24)
+        self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
+        
+        # 3. 日期 (靠右)
+        self.set_font_size(10)
+        self.cell(0, 8, txt=f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='R')
+        
+        # 4. 畫一條橫線
+        self.line(10, self.get_y(), 287, self.get_y())
+        self.ln(2)
+
+        # 5. 表格表頭 (這會出現在每一頁的最上方)
+        self.set_font_size(12)
+        self.set_fill_color(232, 139, 0) # 橘色背景
+        self.set_text_color(255, 255, 255) # 白色文字
+        self.set_line_width(0.3)
+
+        headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
+        # 定義欄寬 (總寬度 277mm, A4橫向寬度為297, 左右邊距預設10)
+        col_w = [35, 30, 80, 20, 37, 37, 37] 
+        
+        for i, h in enumerate(headers):
+            self.cell(col_w[i], 10, h, border=1, align='C', fill=True)
+        self.ln()
+        
+        # 重設回黑色文字，供下方內容使用
+        self.set_text_color(0, 0, 0) 
+
+    def footer(self):
+        # --- 頁尾 (簽名區) ---
+        # 移到距離底部 25mm 的位置
+        self.set_y(-25)
+        
+        if os.path.exists(FONT_FILE):
+            self.set_font('ChineseFont', '', 12)
+        
+        # 畫一條分隔線
+        self.line(10, self.get_y(), 287, self.get_y())
+        self.ln(5) # 空一點距離
+        
+        # 簽名欄位 (橫向排列)
+        self.cell(90, 10, "器材負責人：__________________", align='L')
+        self.cell(90, 10, "活動負責人：__________________", align='C')
+        self.cell(90, 10, "指導老師：__________________", align='R')
+
 def create_pdf(selected_items_list):
-    # 1. 轉成 DataFrame 方便排序
+    # 1. 準備資料並排序 (排序很重要，不然合併儲存格會亂掉)
     df = pd.DataFrame(selected_items_list)
-    
-    # 🔥 關鍵步驟：一定要先依照「分類」排序，合併儲存格才不會斷掉
     if not df.empty:
-        # 先排分類，再排編號
         df = df.sort_values(by=['category', 'uid'])
-        # 轉回 List 進行列印迴圈
         sorted_items = df.to_dict('records')
     else:
         sorted_items = []
 
-    # 設定 A4 橫向
-    pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=True, margin=35) # 設定底部留白，保留給簽名區
+    # 2. 初始化 PDF (使用我們自定義的 Class)
+    pdf = PDFReport()
     pdf.add_page()
-    
-    # 檢查字體
+
+    # 3. 檢查字體
     if os.path.exists(FONT_FILE):
-        try:
-            pdf.add_font('ChineseFont', '', FONT_FILE)
-            pdf.set_font('ChineseFont', '', 12)
-        except Exception as e:
-            pdf.set_font("Helvetica", size=12)
-            pdf.cell(0, 10, txt=f"Font Error: {e}", ln=1, align='C')
+        pdf.set_font('ChineseFont', '', 11)
     else:
-        pdf.set_font("Helvetica", size=12)
-        pdf.cell(0, 10, txt="Error: Font file not found.", ln=1, align='C')
+        pdf.set_font("Helvetica", size=11)
+        pdf.cell(0, 10, "Error: Font file not found.", ln=1)
 
-    # --- 標題區 ---
-    pdf.set_font_size(24)
-    pdf.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
-    
-    pdf.set_font_size(12)
-    pdf.cell(0, 10, txt=f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='R')
-    pdf.line(10, 35, 287, 35)
-    pdf.ln(5)
-
-    # --- 表格設定 ---
-    pdf.set_font_size(12)
-    pdf.set_fill_color(232, 139, 0)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_line_width(0.3)
-
-    # 定義欄位標題與寬度
-    headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
+    # 4. 開始印內容
     col_w = [35, 30, 80, 20, 37, 37, 37] 
-    
-    # 印表頭
-    for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 12, h, border=1, align='C', fill=True)
-    pdf.ln()
-
-    # --- 表格內容 (包含合併儲存格邏輯) ---
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font_size(11)
-    
     total_rows = len(sorted_items)
     
+    # 斑馬紋設定
+    fill = False 
+    pdf.set_fill_color(245, 245, 245)
+
     for i in range(total_rows):
         item = sorted_items[i]
         
@@ -129,74 +160,51 @@ def create_pdf(selected_items_list):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
-        # --- 🔥 合併儲存格邏輯 ---
-        # 判斷是否顯示分類文字 & 畫線
-        # 我們要比較「這一行」跟「上一行」的分類是否相同
-        
-        draw_top_line = False
-        draw_bottom_line = False
+        # --- 🔥 合併儲存格邏輯 (視覺處理) ---
+        draw_top = False
+        draw_bottom = False
         show_cat_text = False
         
-        # 如果是第一行，或者跟上一行分類不同 -> 顯示文字，畫上線
+        # 如果是第一行，或者跟上一行分類不同 -> 要畫頂線，要顯示文字
         if i == 0 or sorted_items[i-1].get('category') != cat:
-            draw_top_line = True
+            draw_top = True
             show_cat_text = True
             
-        # 如果是最後一行，或者跟下一行分類不同 -> 畫底線
+        # 如果是最後一行，或者跟下一行分類不同 -> 要畫底線
         if i == total_rows - 1 or sorted_items[i+1].get('category') != cat:
-            draw_bottom_line = True
+            draw_bottom = True
 
         # 組合 Border 字串
-        # L=左, R=右, T=上, B=下
-        # 分類欄位永遠有左右線
-        cat_border = 'LR'
-        if draw_top_line: cat_border += 'T'
-        if draw_bottom_line: cat_border += 'B'
+        cat_border = 'LR' # 左右永遠要有線
+        if draw_top: cat_border += 'T'
+        if draw_bottom: cat_border += 'B'
         
-        # 其他欄位永遠是全框 (1)
-        other_border = 1 
-
-        # 決定分類欄位顯示什麼
+        # 分類欄位文字
         cat_display = cat if show_cat_text else ""
         
-        # 開始列印
-        # 1. 分類 (套用合併邏輯)
-        pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C')
+        # --- 列印儲存格 ---
+        # 1. 分類 (合併效果)
+        pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=fill)
         
-        # 2. 編號
-        pdf.cell(col_w[1], 10, uid, border=other_border, align='C')
+        # 2. 其他欄位 (正常全框)
+        pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
         
-        # 3. 名稱 (截斷處理)
+        # 名稱截斷處理 (避免太長跑版)
         if pdf.get_string_width(name) > col_w[2] - 2:
              display_name = name[:14] + "..."
         else:
              display_name = name
-        pdf.cell(col_w[2], 10, display_name, border=other_border, align='C')
+        pdf.cell(col_w[2], 10, display_name, border=1, align='C', fill=fill)
         
-        # 4. 數量
-        pdf.cell(col_w[3], 10, qty, border=other_border, align='C')
+        pdf.cell(col_w[3], 10, qty, border=1, align='C', fill=fill)
         
-        # 5. 三個清點欄位 (空白)
-        pdf.cell(col_w[4], 10, "", border=other_border, align='C')
-        pdf.cell(col_w[5], 10, "", border=other_border, align='C')
-        pdf.cell(col_w[6], 10, "", border=other_border, align='C')
+        # 空白清點欄
+        pdf.cell(col_w[4], 10, "", border=1, align='C', fill=fill)
+        pdf.cell(col_w[5], 10, "", border=1, align='C', fill=fill)
+        pdf.cell(col_w[6], 10, "", border=1, align='C', fill=fill)
         
         pdf.ln()
-
-    # --- 🔥 頁尾簽名區 (固定在底部) ---
-    # 負數代表從頁面底部算起，-35mm 的位置
-    pdf.set_y(-35) 
-    
-    pdf.set_font_size(12)
-    # 使用 Cell 排成一列
-    # 總寬度約 277，分成三等份，每份約 92
-    
-    # 畫框線裝飾 (可選)
-    # pdf.line(10, pdf.get_y(), 287, pdf.get_y()) # 簽名區上方畫一條線
-    
-    pdf.cell(90, 10, "器材負責人：__________________", align='L')
-    pdf.cell(90, 10, "活動負責人：__________________", align='C')
-    pdf.cell(90, 10, "指導老師：__________________", align='R')
+        fill = not fill # 切換顏色
 
     return pdf.output()
 
@@ -298,7 +306,6 @@ def show_cart_modal(df):
         
         # 產生 PDF
         try:
-            # 必須把 dataframe 轉成 list of dicts 傳進去
             pdf_bytes = create_pdf(cart_items.to_dict('records'))
             if pdf_bytes:
                 col2.download_button(
