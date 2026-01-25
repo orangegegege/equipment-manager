@@ -516,21 +516,64 @@ def admin_return_page():
 
 def render_inventory_view():
     render_success_banner() 
+    
     df = load_data()
+    
+    # --- 上方數據儀表板 ---
     if not df.empty:
         total = df['quantity'].sum(); borrowed = df['borrowed'].sum()
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("📦 器材種類", len(df)); m2.metric("📊 庫存總數", int(total))
         m3.metric("✅ 剩餘可用", int(total - borrowed)); m4.metric("👤 目前借出", int(borrowed))
 
-    st.write(""); search_query = st.text_input("🔍 搜尋...", label_visibility="collapsed")
-    st.write(""); selected_cat = st.pills("分類", ["全部顯示"] + CATEGORY_OPTIONS, default="全部顯示")
+    st.write("")
+    search_query = st.text_input("🔍 搜尋...", label_visibility="collapsed")
+    st.write("")
 
+    # 🔥🔥🔥 修改重點開始：計算分類數量並製作帶數字的標籤 🔥🔥🔥
     if not df.empty:
-        filtered = df
-        if selected_cat != "全部顯示": filtered = df[df['category'] == selected_cat]
-        if search_query: filtered = filtered[filtered['name'].str.contains(search_query, case=False) | filtered['uid'].str.contains(search_query, case=False)]
+        # 1. 計算每個分類的數量
+        cat_counts = df['category'].value_counts()
         
+        # 2. 準備顯示用的選項列表 (Display List) 與 對照表 (Mapping)
+        # 對照表格式： { "手工具 (3)": "手工具", "全部顯示 (10)": "全部顯示" }
+        display_options = []
+        option_map = {} # 用來把「顯示名稱」轉回「真實分類名稱」
+        
+        # 處理 "全部顯示"
+        total_items = len(df)
+        label_all = f"全部顯示 ({total_items})"
+        display_options.append(label_all)
+        option_map[label_all] = "全部顯示"
+        
+        # 處理各個分類
+        for cat in CATEGORY_OPTIONS:
+            count = cat_counts.get(cat, 0) # 如果該分類沒東西，數量為 0
+            label = f"{cat} ({count})"
+            display_options.append(label)
+            option_map[label] = cat
+            
+        # 3. 顯示 Pills (傳入帶數字的列表)
+        # selected_pill 會拿到像 "手工具 (3)" 這樣的字串
+        selected_pill = st.pills("分類", display_options, default=label_all)
+        
+        # 4. 轉回真實分類名稱供後續篩選
+        # 如果 user 還沒選 (None)，預設為全部顯示
+        real_selected_cat = option_map.get(selected_pill, "全部顯示")
+
+        # --- 篩選邏輯 ---
+        filtered = df
+        # 使用轉譯後的 real_selected_cat 來篩選
+        if real_selected_cat != "全部顯示": 
+            filtered = df[df['category'] == real_selected_cat]
+            
+        if search_query: 
+            filtered = filtered[
+                filtered['name'].str.contains(search_query, case=False) | 
+                filtered['uid'].str.contains(search_query, case=False)
+            ]
+        
+        # --- 顯示卡片 ---
         if not filtered.empty:
             st.write("")
             cols = st.columns(3)
@@ -540,6 +583,7 @@ def render_inventory_view():
                         img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                         st.markdown(f'<div style="height:200px;overflow:hidden;border-radius:4px;display:flex;justify-content:center;background:#f0f2f6;margin-bottom:12px;"><img src="{img}" style="height:100%;width:100%;object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
+                        
                         stat_txt, stat_col = get_status_display(row)
                         st.caption(f"#{row['uid']} | 📍 {row['location']}")
                         st.markdown(f':{stat_col}[**{stat_txt}**]')
@@ -556,7 +600,7 @@ def render_inventory_view():
                             elif sel:
                                 del st.session_state.cart[row['uid']]; st.rerun()
         else: st.info("無資料")
-    else: st.info("無資料")
+    else: st.info("尚無任何器材資料")
 
 # ==========================================
 # 主執行邏輯
@@ -588,3 +632,4 @@ else:
         with tab2: admin_return_page()
     else:
         render_inventory_view()
+
