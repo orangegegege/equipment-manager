@@ -17,7 +17,7 @@ LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/lo
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
-# ⚠️ 字體設定：這裡已經改成你上傳的檔名了！
+# ⚠️ 字體設定 (維持你上傳的檔案)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
@@ -60,73 +60,102 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 4. PDF 生成功能 (使用你上傳的字體) ---
+# --- 4. PDF 生成功能 (橫向清點表版) ---
 def create_pdf(selected_items):
-    pdf = FPDF()
+    # 🔥 設定為橫向 (L = Landscape)，單位 mm，格式 A4
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
     
     # 檢查字體檔是否存在
     if os.path.exists(FONT_FILE):
         try:
-            # 註冊字體 (fpdf2 語法)
             pdf.add_font('ChineseFont', '', FONT_FILE)
-            pdf.set_font('ChineseFont', '', 14)
+            pdf.set_font('ChineseFont', '', 12)
         except Exception as e:
-            # 如果字體載入失敗，回退英文以免當機
             pdf.set_font("Helvetica", size=12)
             pdf.cell(0, 10, txt=f"Font Error: {e}", ln=1, align='C')
     else:
-        # 如果找不到檔案
         pdf.set_font("Helvetica", size=12)
-        pdf.cell(0, 10, txt="Error: TaipeiSansTCBeta-Regular.ttf not found.", ln=1, align='C')
+        pdf.cell(0, 10, txt="Error: Font file not found.", ln=1, align='C')
 
-    # 標題
-    pdf.set_font_size(20)
-    pdf.cell(0, 15, txt="團隊器材借用清單", ln=1, align='C')
+    # --- 標題區 ---
+    pdf.set_font_size(24)
+    pdf.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
     
-    # 日期
-    pdf.set_font_size(10)
-    pdf.cell(0, 10, txt=f"匯出日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='C')
-    pdf.ln(10)
+    pdf.set_font_size(12)
+    # 顯示匯出時間和一個底線
+    pdf.cell(0, 10, txt=f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='R')
+    pdf.line(10, 35, 287, 35) # 畫一條橫線 (A4橫向寬度約297mm)
+    pdf.ln(5)
 
-    # 表格標頭
+    # --- 表格設定 ---
     pdf.set_font_size(12)
     pdf.set_fill_color(232, 139, 0) # 橘色背景
     pdf.set_text_color(255, 255, 255) # 白色文字
+    pdf.set_line_width(0.3) # 格線寬度
+
+    # 🔥 定義欄位標題與寬度 (總寬度約 277mm)
+    # 分類 | 編號 | 名稱 | 數量 | 營前 | 離營 | 營後
+    headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
+    col_w = [35, 30, 80, 20, 37, 37, 37] 
     
-    col_w = [30, 70, 30, 30, 30] 
-    headers = ["編號", "名稱", "分類", "狀態", "位置"]
-    
+    # 繪製表頭
     for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 10, h, border=1, align='C', fill=True)
+        pdf.cell(col_w[i], 12, h, border=1, align='C', fill=True)
     pdf.ln()
 
-    # 表格內容
+    # --- 表格內容 ---
     pdf.set_text_color(0, 0, 0) # 黑色文字
+    pdf.set_font_size(11) # 內容字稍微縮小一點
     
+    # 為了美觀，做斑馬紋 (隔行變色)
+    fill = False 
+    pdf.set_fill_color(245, 245, 245) # 淺灰
+
     for item in selected_items:
         uid = str(item.get('uid', ''))
         name = str(item.get('name', ''))
         cat = str(item.get('category', ''))
-        status = str(item.get('status', ''))
-        loc = str(item.get('location', ''))
+        # 數量轉字串，如果沒有就預設1
+        qty = str(item.get('quantity', '1')) 
         
-        pdf.cell(col_w[0], 10, uid, border=1, align='C')
+        # 繪製每一格
+        pdf.cell(col_w[0], 10, cat, border=1, align='C', fill=fill)
+        pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
         
-        # 處理名稱過長截斷
-        # 注意：如果名稱包含中文字，get_string_width 有時會誤判，這裡做簡單截斷
-        display_name = name if len(name) < 12 else name[:11] + "..."
-            
-        pdf.cell(col_w[1], 10, display_name, border=1, align='C')
-        pdf.cell(col_w[2], 10, cat, border=1, align='C')
-        pdf.cell(col_w[3], 10, status, border=1, align='C')
-        pdf.cell(col_w[4], 10, loc, border=1, align='C')
+        # 名稱欄位如果太長，自動截斷加 ...
+        if pdf.get_string_width(name) > col_w[2] - 2:
+             display_name = name[:14] + "..."
+        else:
+             display_name = name
+        pdf.cell(col_w[2], 10, display_name, border=1, align='C', fill=fill)
+        
+        pdf.cell(col_w[3], 10, qty, border=1, align='C', fill=fill)
+        
+        # 🔥這三格是空白的，讓你們手寫打勾
+        pdf.cell(col_w[4], 10, "", border=1, align='C', fill=fill) # 營前
+        pdf.cell(col_w[5], 10, "", border=1, align='C', fill=fill) # 離營
+        pdf.cell(col_w[6], 10, "", border=1, align='C', fill=fill) # 營後
+        
         pdf.ln()
+        fill = not fill # 切換顏色
+
+    # --- 底部簽核區 (仿照你的參考圖) ---
+    pdf.ln(15)
     
-    # 簽名區
-    pdf.ln(20)
-    pdf.cell(0, 10, "借用人簽名: _________________________", ln=1)
-    pdf.cell(0, 10, "管理員核准: _________________________", ln=1)
+    # 畫一個簡單的簽核框
+    # X 座標, Y 座標, 寬, 高
+    y_start = pdf.get_y()
+    
+    pdf.set_font_size(12)
+    pdf.cell(90, 10, "器材負責人 / 管理員：", ln=0)
+    pdf.cell(90, 10, "營隊/活動負責人：", ln=0)
+    pdf.cell(90, 10, "指導老師：", ln=1)
+    
+    pdf.ln(10)
+    pdf.cell(90, 0, "_______________________", ln=0)
+    pdf.cell(90, 0, "_______________________", ln=0)
+    pdf.cell(90, 0, "_______________________", ln=1)
 
     return pdf.output()
 
@@ -213,11 +242,14 @@ def show_cart_modal(df):
     else:
         cart_items = df[df['uid'].isin(st.session_state.cart)]
         st.write(f"目前已選擇 {len(cart_items)} 項器材：")
+        
+        # 顯示簡單預覽表
         st.dataframe(
-            cart_items[['uid', 'name', 'category', 'status', 'location']], 
+            cart_items[['category', 'uid', 'name', 'quantity', 'location']], 
             hide_index=True,
             use_container_width=True
         )
+        
         col1, col2 = st.columns([1, 1])
         if col1.button("🗑️ 清空清單", use_container_width=True):
             st.session_state.cart = set()
@@ -228,9 +260,9 @@ def show_cart_modal(df):
             pdf_bytes = create_pdf(cart_items.to_dict('records'))
             if pdf_bytes:
                 col2.download_button(
-                    label="📄 下載 PDF 清單",
+                    label="📄 下載清點單 (PDF)",
                     data=bytes(pdf_bytes), 
-                    file_name=f"equipment_list_{int(time.time())}.pdf",
+                    file_name=f"camp_equipment_list_{int(time.time())}.pdf",
                     mime="application/pdf",
                     type="primary",
                     use_container_width=True
