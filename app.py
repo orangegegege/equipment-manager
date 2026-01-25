@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from datetime import datetime, timedelta # 引入 timedelta 處理時差
+from datetime import datetime, timedelta 
 import time
 import os
 import io 
@@ -86,7 +86,6 @@ def get_today_str():
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__(orientation='L', unit='mm', format='A4')
-        # 🔥 改為 False，因為我們要手動控制換頁，才能處理跨頁標題
         self.set_auto_page_break(auto=False) 
 
     def header(self):
@@ -101,7 +100,6 @@ class PDFReport(FPDF):
         self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
         
         self.set_font_size(10)
-        # 🔥 使用台灣時間
         self.cell(0, 8, txt=f"製表日期: {get_taiwan_time_str()}", ln=1, align='R')
         
         self.line(10, self.get_y(), 287, self.get_y())
@@ -127,8 +125,6 @@ class PDFReport(FPDF):
         if os.path.exists(FONT_FILE):
             self.set_font('ChineseFont', '', 12)
         
-        # 🔥 移除了這裡原本的 self.line(...)
-        
         self.cell(90, 10, "器材負責人：__________________", align='L')
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
@@ -149,11 +145,9 @@ def create_pdf(sorted_items, text_display_map):
     pdf.set_fill_color(245, 245, 245)
 
     for i in range(total_rows):
-        # --- 🔥 換頁檢測邏輯 ---
-        # A4 橫向高度 210mm，底部留 35mm 簽名區，再留一點緩衝，大約到 170mm 就要換頁
         if pdf.get_y() > 170:
             pdf.add_page()
-            force_new_page_header = True # 標記：這是一頁的開始
+            force_new_page_header = True 
         else:
             force_new_page_header = False
 
@@ -164,19 +158,15 @@ def create_pdf(sorted_items, text_display_map):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
-        # --- 邊框與文字顯示邏輯 ---
         draw_top = False
         draw_bottom = False
         
-        # 1. 頂部線條：如果是第一筆、分類改變、或者是新頁面的第一筆 -> 畫線
         if i == 0 or sorted_items[i-1].get('category') != cat or force_new_page_header: 
             draw_top = True
         
-        # 2. 底部線條：如果是最後一筆、或下一筆分類改變 -> 畫線
         if i == total_rows - 1 or sorted_items[i+1].get('category') != cat: 
             draw_bottom = True
             
-        # 3. 預判下一筆是否會換頁 (如果下一筆會換頁，這一筆最好畫上底線封口)
         if pdf.get_y() + 10 > 170 and not draw_bottom:
             draw_bottom = True
 
@@ -184,15 +174,10 @@ def create_pdf(sorted_items, text_display_map):
         if draw_top: cat_border += 'T'
         if draw_bottom: cat_border += 'B'
         
-        # --- 文字顯示 ---
-        # 預設：只在計算好的中心點顯示
         cat_display = text_display_map.get(i, "")
-        
-        # 🔥 強制顯示：如果是新頁面的第一行，不管是不是中心點，都要顯示分類名稱
         if force_new_page_header:
             cat_display = cat
         
-        # 開始列印
         pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=False)
         pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
         
@@ -242,7 +227,6 @@ def create_word(sorted_items):
     run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     run.bold = True
     
-    # 🔥 使用台灣時間
     date_para = doc.add_paragraph(f"製表日期: {get_taiwan_time_str()}")
     date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     
@@ -305,8 +289,6 @@ def create_word(sorted_items):
         start_row = end_row
 
     doc.add_paragraph("\n") 
-    # Word 這裡的分隔線我先保留(用底線模擬)，如果你也不想要，可以把下面這行刪掉
-    # doc.add_paragraph("_" * 125) 
     
     sig_table = doc.add_table(rows=1, cols=3)
     sig_table.autofit = True
@@ -394,6 +376,10 @@ def go_to(page): st.session_state.current_page = page
 def perform_logout(): 
     st.session_state.is_admin = False
     st.session_state.cart = set()
+    # 登出時也順便清除 checkbox 狀態
+    for key in list(st.session_state.keys()):
+        if key.startswith("check_"):
+            del st.session_state[key]
     go_to("home")
 def perform_login():
     if st.session_state.password_input == st.secrets["ADMIN_PASSWORD"]:
@@ -447,7 +433,7 @@ def show_cart_modal(df):
             st.write("") 
             st.write("") 
             
-            # 🔥 產生當天日期的檔名 (equipment_list_YYYY-MM-DD)
+            # 🔥 產生當天日期的檔名
             today_date = get_today_str()
             file_prefix = f"equipment_list_{today_date}"
             
@@ -480,8 +466,14 @@ def show_cart_modal(df):
                 except Exception as e:
                     st.error(f"Word 錯誤: {e}")
 
+        # 🔥🔥🔥 修復：清空清單邏輯 🔥🔥🔥
         if st.button("🗑️ 清空清單", use_container_width=True):
+            # 1. 清空集合
             st.session_state.cart = set()
+            # 2. 強制清除所有 checkbox 的快取狀態
+            for key in list(st.session_state.keys()):
+                if key.startswith("check_"):
+                    del st.session_state[key]
             st.rerun()
 
 # ==========================================
