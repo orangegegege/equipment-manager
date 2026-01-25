@@ -87,13 +87,23 @@ def load_active_borrows():
     res = supabase.table("borrow_records").select("*").eq("is_returned", False).order("borrow_date", desc=True).execute()
     return pd.DataFrame(res.data)
 
+# 🔥 智慧歸還邏輯 (單筆)
 def return_equipment_transaction(record_id, uid, qty_to_return):
+    # 1. 抓取目前器材庫存
     eq_res = supabase.table("equipment").select("borrowed").eq("uid", uid).execute()
     if eq_res.data:
-        current = eq_res.data[0]['borrowed']
-        new_borrowed = max(0, current - qty_to_return)
+        current_borrowed_in_db = eq_res.data[0]['borrowed']
+        # 2. 計算歸還後的借出量 (防止負數)
+        new_borrowed = max(0, current_borrowed_in_db - qty_to_return)
+        
+        # 3. 更新器材表
         supabase.table("equipment").update({"borrowed": new_borrowed}).eq("uid", uid).execute()
-        supabase.table("borrow_records").update({"is_returned": True, "return_date": datetime.utcnow().isoformat()}).eq("id", record_id).execute()
+        
+        # 4. 更新紀錄表
+        supabase.table("borrow_records").update({
+            "is_returned": True, 
+            "return_date": datetime.utcnow().isoformat()
+        }).eq("id", record_id).execute()
         return True
     return False
 
@@ -106,11 +116,9 @@ def get_today_str():
 def get_status_display(row):
     manual = row.get('status', '在庫')
     if manual in ['維修中', '報廢']: return manual, "grey"
-    
     total = row.get('quantity', 1)
     borrowed = row.get('borrowed', 0)
     avail = total - borrowed
-    
     if avail <= 0: return "🔴 已借完 / 暫無庫存", "red"
     elif borrowed > 0: return f"⚠️ 部分在庫 (剩 {avail})", "orange"
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
@@ -255,23 +263,19 @@ def render_header():
             if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
         st.markdown('</div>', unsafe_allow_html=True)
 
-# 🔥🔥🔥 新增：借用成功後的下載橫幅 (解決按鈕消失問題)
+# 下載橫幅
 def render_success_banner():
     if st.session_state.latest_order:
         with st.container(border=True):
             st.success("🎉 借用申請已送出！庫存已扣除。請下載借用單：")
-            
             final_list = st.session_state.latest_order
             today_date = get_today_str(); file_prefix = f"equipment_list_{today_date}"
-            
-            # 計算 map
             text_map = {}
             s_idx = 0; t_rows = len(final_list)
             for i in range(t_rows + 1):
                 if i == t_rows or final_list[i]['category'] != final_list[s_idx]['category']:
                     text_map[s_idx + (i - s_idx)//2] = final_list[s_idx]['category']
                     s_idx = i
-
             c1, c2, c3 = st.columns([1, 1, 1])
             with c1:
                 try:
@@ -397,15 +401,34 @@ def admin_return_page():
         for person in borrowers:
             person_items = active_borrows[active_borrows['borrower_name'] == person]
             with st.expander(f"👤 {person} (共借 {len(person_items)} 項)", expanded=True):
-                contact = person_items.iloc[0]['contact_info']
-                st.caption(f"📞 聯絡方式: {contact}")
+                # 🔥 新增一鍵歸還區域
+                col_info, col_btn = st.columns([3, 1])
+                with col_info:
+                    contact = person_items.iloc[0]['contact_info']
+                    st.caption(f"📞 聯絡方式: {contact}")
+                with col_btn:
+                    # 🔥 一鍵歸還按鈕
+                    if st.button(f"⚡ 一鍵歸還全部 ({len(person_items)})", key=f"ret_all_{person}"):
+                        success_count = 0
+                        for idx, row in person_items.iterrows():
+                            if return_equipment_transaction(row['id'], row['equipment_uid'], row['borrow_qty']):
+                                success_count += 1
+                        
+                        if success_count > 0:
+                            st.toast(f"✅ 已成功歸還 {person} 的 {success_count} 項器材！")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("歸還失敗")
+
+                st.markdown("---")
+                
+                # 個別歸還列表
                 for i, row in person_items.iterrows():
                     c1, c2, c3, c4 = st.columns([1, 3, 2, 2], vertical_alignment="center")
                     with c1: st.write("📦")
                     with c2: st.write(f"**{row['equipment_name']}**"); st.caption(f"#{row['equipment_uid']}")
                     with c3:
                         st.write(f"借用數量: {row['borrow_qty']}")
-                        # 🔥 修正：時間加回 8 小時 (台灣時間)
                         utc_dt = datetime.fromisoformat(row['borrow_date'])
                         tw_dt = utc_dt + timedelta(hours=8)
                         st.caption(f"🕒 {tw_dt.strftime('%Y-%m-%d %H:%M')}")
@@ -416,7 +439,7 @@ def admin_return_page():
                             else: st.error("歸還失敗")
 
 def render_inventory_view():
-    render_success_banner() # 🔥 在主畫面渲染下載區
+    render_success_banner() # 🔥 下載區
     
     df = load_data()
     if not df.empty:
