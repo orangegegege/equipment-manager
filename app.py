@@ -56,10 +56,15 @@ def upload_image(file):
         st.error(f"上傳失敗: {e}")
         return None
 
-# --- 3. 資料庫 CRUD ---
+# --- 3. 資料庫 CRUD (新增 borrowed 欄位處理) ---
 def load_data():
+    # 記得要在 Supabase 執行 SQL: ALTER TABLE equipment ADD COLUMN borrowed INT DEFAULT 0;
     response = supabase.table("equipment").select("*").order("id", desc=True).execute()
-    return pd.DataFrame(response.data)
+    df = pd.DataFrame(response.data)
+    # 防呆：如果資料庫還沒加欄位，這裡手動補上避免報錯
+    if 'borrowed' not in df.columns and not df.empty:
+        df['borrowed'] = 0
+    return df
 
 def add_equipment_to_db(data):
     supabase.table("equipment").insert(data).execute()
@@ -70,9 +75,8 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 輔助函式：取得台灣時間字串 ---
+# --- 輔助函式 ---
 def get_taiwan_time_str():
-    # UTC 時間 + 8 小時
     tw_time = datetime.utcnow() + timedelta(hours=8)
     return tw_time.strftime('%Y-%m-%d %H:%M')
 
@@ -80,8 +84,27 @@ def get_today_str():
     tw_time = datetime.utcnow() + timedelta(hours=8)
     return tw_time.strftime('%Y-%m-%d')
 
+# 🔥🔥🔥 核心邏輯：計算狀態標籤 🔥🔥🔥
+def get_status_display(row):
+    # 先看有沒有被人工強制設定狀態
+    manual_status = row.get('status', '在庫')
+    if manual_status in ['維修中', '報廢']:
+        return manual_status, "grey"
+    
+    # 接著看數量邏輯
+    total = row.get('quantity', 1)
+    borrowed = row.get('borrowed', 0)
+    available = total - borrowed
+    
+    if available <= 0:
+        return "🔴 已借完 / 暫無庫存", "red"
+    elif borrowed > 0:
+        return f"⚠️ 部分在庫 (剩 {available})", "orange"
+    else:
+        return f"✅ 足額在庫 ({available}/{total})", "green"
+
 # ==========================================
-# 4. PDF 生成功能 (智慧跨頁版)
+# PDF 與 Word 生成 (沿用之前的邏輯，稍微適應新資料)
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
@@ -98,50 +121,38 @@ class PDFReport(FPDF):
         
         self.set_font_size(24)
         self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
-        
         self.set_font_size(10)
-        # 🔥 使用台灣時間
         self.cell(0, 8, txt=f"製表日期: {get_taiwan_time_str()}", ln=1, align='R')
-        
         self.line(10, self.get_y(), 287, self.get_y())
         self.ln(2)
-
+        
+        # 表頭
         self.set_font_size(12)
         self.set_fill_color(232, 139, 0) 
         self.set_text_color(255, 255, 255) 
         self.set_line_width(0.3)
-
-        headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
+        headers = ["分類項目", "編號", "器材名稱", "借用數量", "營前清點", "離營清點", "營後清點"]
         col_w = [35, 30, 80, 20, 37, 37, 37] 
-        
         for i, h in enumerate(headers):
             self.cell(col_w[i], 10, h, border=1, align='C', fill=True)
         self.ln()
-        
         self.set_text_color(0, 0, 0) 
 
     def footer(self):
         self.set_y(-25)
-        
-        if os.path.exists(FONT_FILE):
-            self.set_font('ChineseFont', '', 12)
-        
+        if os.path.exists(FONT_FILE): self.set_font('ChineseFont', '', 12)
         self.cell(90, 10, "器材負責人：__________________", align='L')
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
 
-def create_pdf(sorted_items, text_display_map):
+def create_pdf(cart_data, text_display_map):
     pdf = PDFReport()
     pdf.add_page()
-
-    if os.path.exists(FONT_FILE):
-        pdf.set_font('ChineseFont', '', 11)
-    else:
-        pdf.set_font("Helvetica", size=11)
+    if os.path.exists(FONT_FILE): pdf.set_font('ChineseFont', '', 11)
+    else: pdf.set_font("Helvetica", size=11)
 
     col_w = [35, 30, 80, 20, 37, 37, 37] 
-    total_rows = len(sorted_items)
-    
+    total_rows = len(cart_data)
     fill = False 
     pdf.set_fill_color(245, 245, 245)
 
@@ -149,57 +160,37 @@ def create_pdf(sorted_items, text_display_map):
         if pdf.get_y() > 170:
             pdf.add_page()
             force_new_page_header = True 
-        else:
-            force_new_page_header = False
+        else: force_new_page_header = False
 
-        item = sorted_items[i]
+        item = cart_data[i]
+        cat = item['category']
         
-        uid = str(item.get('uid', ''))
-        name = str(item.get('name', ''))
-        cat = str(item.get('category', ''))
-        qty = str(item.get('quantity', '1'))
+        draw_top = (i == 0 or cart_data[i-1]['category'] != cat or force_new_page_header)
+        draw_bottom = (i == total_rows - 1 or cart_data[i+1]['category'] != cat or (pdf.get_y() + 10 > 170))
         
-        draw_top = False
-        draw_bottom = False
-        
-        if i == 0 or sorted_items[i-1].get('category') != cat or force_new_page_header: 
-            draw_top = True
-        
-        if i == total_rows - 1 or sorted_items[i+1].get('category') != cat: 
-            draw_bottom = True
-            
-        if pdf.get_y() + 10 > 170 and not draw_bottom:
-            draw_bottom = True
-
         cat_border = 'LR' 
         if draw_top: cat_border += 'T'
         if draw_bottom: cat_border += 'B'
         
         cat_display = text_display_map.get(i, "")
-        if force_new_page_header:
-            cat_display = cat
+        if force_new_page_header: cat_display = cat
         
         pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=False)
-        pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
+        pdf.cell(col_w[1], 10, str(item['uid']), border=1, align='C', fill=fill)
         
-        if pdf.get_string_width(name) > col_w[2] - 2:
-             display_name = name[:14] + "..."
-        else:
-             display_name = name
-        pdf.cell(col_w[2], 10, display_name, border=1, align='C', fill=fill)
-        pdf.cell(col_w[3], 10, qty, border=1, align='C', fill=fill)
+        name = str(item['name'])
+        if pdf.get_string_width(name) > col_w[2] - 2: name = name[:14] + "..."
+        pdf.cell(col_w[2], 10, name, border=1, align='C', fill=fill)
+        
+        # 🔥 這裡是借用數量，不是總庫存
+        pdf.cell(col_w[3], 10, str(item['borrow_qty']), border=1, align='C', fill=fill)
+        
         pdf.cell(col_w[4], 10, "", border=1, align='C', fill=fill)
         pdf.cell(col_w[5], 10, "", border=1, align='C', fill=fill)
         pdf.cell(col_w[6], 10, "", border=1, align='C', fill=fill)
-        
         pdf.ln()
         fill = not fill 
-
     return pdf.output()
-
-# ==========================================
-# 🔥 5. Word 生成功能
-# ==========================================
 
 def set_cell_bg(cell, color_hex):
     shading_elm = OxmlElement('w:shd')
@@ -208,9 +199,8 @@ def set_cell_bg(cell, color_hex):
     shading_elm.set(qn('w:fill'), color_hex)
     cell._tc.get_or_add_tcPr().append(shading_elm)
 
-def create_word(sorted_items):
+def create_word(cart_data):
     doc = Document()
-    
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Mm(297)
@@ -224,19 +214,17 @@ def create_word(sorted_items):
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = heading.runs[0]
     run.font.size = Pt(24)
-    run.font.name = "Microsoft JhengHei" 
+    run.font.name = "Microsoft JhengHei"
     run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     run.bold = True
     
-    # 🔥 使用台灣時間
     date_para = doc.add_paragraph(f"製表日期: {get_taiwan_time_str()}")
     date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     
     table = doc.add_table(rows=1, cols=7)
     table.style = 'Table Grid'
     table.autofit = False 
-    
-    headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
+    headers = ["分類項目", "編號", "器材名稱", "借用數量", "營前清點", "離營清點", "營後清點"]
     widths = [12, 10, 30, 8, 13, 13, 13] 
     total_width_mm = 273 
     
@@ -245,7 +233,6 @@ def create_word(sorted_items):
         cell = hdr_row.cells[i]
         cell.text = text
         set_cell_bg(cell, "E88B00")
-        
         para = cell.paragraphs[0]
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = para.runs[0]
@@ -254,57 +241,46 @@ def create_word(sorted_items):
         run.font.size = Pt(12)
         run.font.name = "Microsoft JhengHei"
         run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
-        
         cell.width = Mm(total_width_mm * widths[i] / 100)
 
-    for idx, item in enumerate(sorted_items):
+    for idx, item in enumerate(cart_data):
         row_cells = table.add_row().cells
-        
-        row_cells[0].text = item.get('category', '')
-        row_cells[1].text = str(item.get('uid', ''))
-        row_cells[2].text = str(item.get('name', ''))
-        row_cells[3].text = str(item.get('quantity', '1'))
+        row_cells[0].text = item['category']
+        row_cells[1].text = str(item['uid'])
+        row_cells[2].text = str(item['name'])
+        row_cells[3].text = str(item['borrow_qty'])
         
         for i, cell in enumerate(row_cells):
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
             cell.width = Mm(total_width_mm * widths[i] / 100)
-            
             run = cell.paragraphs[0].runs[0] if cell.paragraphs[0].runs else cell.paragraphs[0].add_run()
             run.font.name = "Microsoft JhengHei"
             run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
 
-    # Word 合併處理
     col_idx = 0
     start_row = 1 
     while start_row < len(table.rows):
         cat_text = table.rows[start_row].cells[col_idx].text
         end_row = start_row + 1
-        
         while end_row < len(table.rows) and table.rows[end_row].cells[col_idx].text == cat_text:
             table.rows[end_row].cells[col_idx].text = "" 
             end_row += 1
-        
         if end_row > start_row + 1:
             table.rows[start_row].cells[col_idx].merge(table.rows[end_row - 1].cells[col_idx])
-        
         start_row = end_row
 
     doc.add_paragraph("\n") 
-    
     sig_table = doc.add_table(rows=1, cols=3)
     sig_table.autofit = True
     sig_table.width = Mm(273)
-    
     sig_cells = sig_table.rows[0].cells
     sig_cells[0].text = "器材負責人：__________________"
     sig_cells[1].text = "活動負責人：__________________"
     sig_cells[2].text = "指導老師：__________________"
-    
     for cell in sig_cells:
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    
     sig_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
     sig_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
@@ -316,9 +292,9 @@ def create_word(sorted_items):
 # --- 頁面設定 ---
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
-# 初始化購物車 Session
+# 初始化購物車 (這次改成 Dictionary 來記數量 {uid: qty})
 if 'cart' not in st.session_state:
-    st.session_state.cart = set() 
+    st.session_state.cart = {} # Key: uid, Value: quantity (預設 1)
 
 # ==========================================
 # 🛠️ CSS 樣式表
@@ -377,11 +353,9 @@ if 'current_page' not in st.session_state: st.session_state.current_page = "home
 def go_to(page): st.session_state.current_page = page
 def perform_logout(): 
     st.session_state.is_admin = False
-    st.session_state.cart = set()
-    # 登出時也順便清除 checkbox 狀態
+    st.session_state.cart = {}
     for key in list(st.session_state.keys()):
-        if key.startswith("check_"):
-            del st.session_state[key]
+        if key.startswith("check_"): del st.session_state[key]
     go_to("home")
 def perform_login():
     if st.session_state.password_input == st.secrets["ADMIN_PASSWORD"]:
@@ -390,44 +364,60 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# 彈窗：檢視清單與匯出 (PDF/Word 選擇版)
+# 彈窗：檢視清單與借用確認 (核心邏輯升級)
 # ==========================================
-@st.dialog("📋 借用清單預覽", width="large")
+@st.dialog("📋 借用清單確認", width="large")
 def show_cart_modal(df):
     if not st.session_state.cart:
         st.info("清單目前是空的，請先勾選器材！")
         if st.button("關閉"): st.rerun()
     else:
-        # 1. 準備資料邏輯
-        cart_items = df[df['uid'].isin(st.session_state.cart)]
-        sorted_df = cart_items.sort_values(by=['category', 'uid'])
-        sorted_items = sorted_df.to_dict('records')
+        # 1. 準備資料，並讓使用者輸入數量
+        cart_uids = list(st.session_state.cart.keys())
+        cart_rows = df[df['uid'].isin(cart_uids)].copy()
         
-        # 計算垂直置中文字位置 (給 PDF 用)
-        text_display_map = {} 
-        start_index = 0
-        total_rows = len(sorted_items)
-        for i in range(total_rows + 1):
-            if i == total_rows or sorted_items[i]['category'] != sorted_items[start_index]['category']:
-                count = i - start_index
-                center_offset = count // 2
-                center_row = start_index + center_offset
-                text_display_map[center_row] = sorted_items[start_index]['category']
-                start_index = i
+        # 強制依分類排序
+        cart_rows = cart_rows.sort_values(by=['category', 'uid'])
+        
+        st.info("💡 請確認以下器材與借用數量，按下「確認借用」後將扣除庫存並產生單據。")
+        
+        # 用來存最終要輸出的資料
+        final_borrow_list = []
+        
+        # 建立編輯介面
+        for i, row in cart_rows.iterrows():
+            c1, c2, c3, c4 = st.columns([2, 3, 2, 2])
+            with c1: st.write(f"**{row['category']}**")
+            with c2: st.write(f"{row['name']} (#{row['uid']})")
+            with c3:
+                # 計算剩餘量 (Total - Borrowed)
+                avail = row['quantity'] - row.get('borrowed', 0)
+                st.caption(f"庫存剩餘: {avail}")
+            with c4:
+                # 數量輸入框 (預設 1，最大不能超過剩餘量)
+                # 這裡要注意：如果剩餘量是 0，理論上不該能加進來，但防呆一下
+                max_val = max(1, avail) 
+                borrow_qty = st.number_input(
+                    "借用數量", 
+                    min_value=1, 
+                    max_value=max_val, 
+                    value=st.session_state.cart.get(row['uid'], 1), 
+                    key=f"qty_{row['uid']}",
+                    label_visibility="collapsed"
+                )
+                
+                # 更新 session 裡的數量紀錄
+                st.session_state.cart[row['uid']] = borrow_qty
+                
+                # 準備資料給 PDF/Word
+                item_dict = row.to_dict()
+                item_dict['borrow_qty'] = borrow_qty
+                final_borrow_list.append(item_dict)
 
-        # 2. 顯示預覽表格
-        st.write(f"目前已選擇 {len(cart_items)} 項器材：")
-        st.dataframe(
-            sorted_df[['category', 'uid', 'name', 'quantity', 'location']], 
-            hide_index=True,
-            use_container_width=True
-        )
-        
         st.markdown("---")
         
-        # 3. 格式選擇與下載區
+        # 3. 格式選擇與確認借用
         col_opt, col_action = st.columns([1, 1])
-        
         with col_opt:
             export_format = st.radio("選擇匯出格式：", ["PDF 文件 (.pdf)", "Word 文件 (.docx)"])
             
@@ -435,51 +425,77 @@ def show_cart_modal(df):
             st.write("") 
             st.write("") 
             
-            # 🔥 產生當天日期的檔名
+            # 🔥🔥🔥 核心按鈕：確認借用 & 下載 🔥🔥🔥
+            # Streamlit 的 download_button 有 callback 功能，我們利用它來更新資料庫
+            
+            def perform_checkout():
+                # 1. 更新資料庫：扣除庫存 (增加 borrowed 數量)
+                try:
+                    for item in final_borrow_list:
+                        current_borrowed = item.get('borrowed', 0)
+                        new_borrowed = current_borrowed + item['borrow_qty']
+                        update_equipment_in_db(item['uid'], {'borrowed': new_borrowed})
+                    
+                    st.toast("✅ 借用成功！庫存已扣除。")
+                    
+                    # 2. 清空購物車
+                    st.session_state.cart = {}
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("check_"): st.session_state[key] = False
+                    
+                    # 稍微延遲讓 user 看到 toast
+                    time.sleep(1)
+                except Exception as e:
+                    st.error(f"資料庫更新失敗: {e}")
+
+            # 準備檔案資料
             today_date = get_today_str()
             file_prefix = f"equipment_list_{today_date}"
             
+            # 計算垂直置中文字位置 (給 PDF 用)
+            text_display_map = {} 
+            start_index = 0
+            total_rows = len(final_borrow_list)
+            for i in range(total_rows + 1):
+                if i == total_rows or final_borrow_list[i]['category'] != final_borrow_list[start_index]['category']:
+                    count = i - start_index
+                    center_offset = count // 2
+                    center_row = start_index + center_offset
+                    text_display_map[center_row] = final_borrow_list[start_index]['category']
+                    start_index = i
+
             if export_format == "PDF 文件 (.pdf)":
                 try:
-                    pdf_bytes = create_pdf(sorted_items, text_display_map)
-                    if pdf_bytes:
-                        st.download_button(
-                            label="⬇️ 下載 PDF 清單",
-                            data=bytes(pdf_bytes), 
-                            file_name=f"{file_prefix}.pdf",
-                            mime="application/pdf",
-                            type="primary",
-                            use_container_width=True
-                        )
-                except Exception as e:
-                    st.error(f"PDF 錯誤: {e}")
+                    pdf_bytes = create_pdf(final_borrow_list, text_display_map)
+                    st.download_button(
+                        label="🚀 確認借用並下載 (PDF)",
+                        data=bytes(pdf_bytes), 
+                        file_name=f"{file_prefix}.pdf",
+                        mime="application/pdf",
+                        type="primary",
+                        use_container_width=True,
+                        on_click=perform_checkout # 🔥 按下即扣庫存
+                    )
+                except Exception as e: st.error(f"PDF 錯誤: {e}")
                     
             elif export_format == "Word 文件 (.docx)":
                 try:
-                    word_bytes = create_word(sorted_items)
+                    word_bytes = create_word(final_borrow_list)
                     st.download_button(
-                        label="⬇️ 下載 Word 清單",
+                        label="🚀 確認借用並下載 (Word)",
                         data=word_bytes,
                         file_name=f"{file_prefix}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary",
-                        use_container_width=True
+                        use_container_width=True,
+                        on_click=perform_checkout # 🔥 按下即扣庫存
                     )
-                except Exception as e:
-                    st.error(f"Word 錯誤: {e}")
+                except Exception as e: st.error(f"Word 錯誤: {e}")
 
-        # 🔥🔥🔥 修復：強制清空 Checkbox 狀態 🔥🔥🔥
-        if st.button("🗑️ 清空清單", use_container_width=True):
-            # 1. 清空集合
-            st.session_state.cart = set()
-            
-            # 2. 🔥 強制將所有 checkbox 的 session_state 值設為 False (取消勾選)
-            # 注意：這裡不能用 del，因為 Streamlit 的 checkbox 會記住之前的狀態
-            # 必須明確地告訴它「這個 key 現在是 False」
-            for key in st.session_state.keys():
-                if key.startswith("check_"):
-                    st.session_state[key] = False
-            
+        if st.button("🗑️ 取消 / 清空", use_container_width=True):
+            st.session_state.cart = {}
+            for key in list(st.session_state.keys()):
+                if key.startswith("check_"): st.session_state[key] = False
             st.rerun()
 
 # ==========================================
@@ -495,7 +511,7 @@ def render_header(df_for_count=None):
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 彈窗：新增/編輯
+# 彈窗：新增/編輯 (已更新 borrowed 欄位)
 # ==========================================
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -505,20 +521,26 @@ def show_add_modal():
         uid = st.text_input("編號", placeholder="例如：TOOL-001")
         c1, c2 = st.columns(2)
         cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=None, placeholder="--請選擇--")
-        status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=None, placeholder="--請選擇--")
+        status = c2.selectbox("狀態", ["在庫", "維修中", "報廢"], index=0, placeholder="--請選擇--") # 移除借出中，改由數量控制
+        
         c3, c4 = st.columns(2)
-        qty = c3.number_input("數量", min_value=1, value=1, step=1)
+        qty = c3.number_input("總數量 (Total)", min_value=1, value=1, step=1)
         loc = c4.text_input("位置", value="儲藏室")
         file = st.file_uploader("照片", type=['jpg','png'])
+        
         if st.form_submit_button("新增", type="primary", use_container_width=True):
-            if name and uid and cat and status:
+            if name and uid and cat:
                 url = upload_image(file) if file else None
-                data_payload = {"uid": uid, "name": name, "category": cat, "status": status, "borrower": "", "location": loc, "quantity": qty, "image_url": url, "updated_at": datetime.now().strftime("%Y-%m-%d")}
+                data_payload = {
+                    "uid": uid, "name": name, "category": cat, "status": status, 
+                    "location": loc, "quantity": qty, "borrowed": 0, # 新增預設為 0
+                    "image_url": url, "updated_at": datetime.now().strftime("%Y-%m-%d")
+                }
                 try:
                     add_equipment_to_db(data_payload)
                     st.toast(f"🎉 成功新增：{name}"); time.sleep(1); st.rerun()
                 except Exception as e: st.error(f"寫入失敗: {e}")
-            else: st.warning("⚠️ 請完整填寫名稱、編號，並選擇分類與狀態！")
+            else: st.warning("請填寫完整資訊")
 
 @st.dialog("⚙️ 編輯/管理器材", width="small")
 def show_edit_modal(item):
@@ -530,23 +552,36 @@ def show_edit_modal(item):
         try: cat_idx = CATEGORY_OPTIONS.index(item['category'])
         except: cat_idx = 0
         new_cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=cat_idx)
-        try: status_idx = ["在庫", "借出中", "維修中", "報廢"].index(item['status'])
+        
+        # 狀態選單：這裡只留人工強制狀態
+        status_opts = ["在庫", "維修中", "報廢"]
+        try: status_idx = status_opts.index(item['status'])
         except: status_idx = 0
-        new_status = c2.selectbox("狀態", ["在庫", "借出中", "維修中", "報廢"], index=status_idx)
+        new_status = c2.selectbox("特殊狀態 (若無異常請選在庫)", status_opts, index=status_idx)
+        
         c3, c4 = st.columns(2)
-        new_qty = c3.number_input("數量", min_value=1, value=item.get('quantity', 1), step=1)
-        new_loc = c4.text_input("位置", value=item['location'] or "")
-        new_borrower = st.text_input("借用人 (若借出請填寫)", value=item['borrower'] or "")
+        new_qty = c3.number_input("總數量 (Total)", min_value=1, value=item.get('quantity', 1), step=1)
+        # 🔥 管理員可以手動調整「已借出」數量 (校正用)
+        new_borrowed = c4.number_input("已借出 (校正用)", min_value=0, max_value=new_qty, value=item.get('borrowed', 0), step=1)
+        
+        new_loc = st.text_input("位置", value=item['location'] or "")
         new_file = st.file_uploader("更換照片", type=['jpg','png'])
+        
         col_update, col_delete = st.columns([1, 1])
         submitted = col_update.form_submit_button("💾 儲存更新", type="primary", use_container_width=True)
         delete_confirm = col_delete.checkbox("確認刪除此器材")
+        
         if submitted:
             if delete_confirm:
                 delete_equipment_from_db(item['uid']); st.toast("🗑️ 已刪除"); time.sleep(1); st.rerun()
             else:
                 final_url = upload_image(new_file) if new_file else item['image_url']
-                updates = {"name": new_name, "category": new_cat, "status": new_status, "quantity": new_qty, "location": new_loc, "borrower": new_borrower, "image_url": final_url, "updated_at": datetime.now().strftime("%Y-%m-%d")}
+                updates = {
+                    "name": new_name, "category": new_cat, "status": new_status, 
+                    "quantity": new_qty, "borrowed": new_borrowed, # 更新借出量
+                    "location": new_loc, "image_url": final_url, 
+                    "updated_at": datetime.now().strftime("%Y-%m-%d")
+                }
                 update_equipment_in_db(item['uid'], updates); st.toast("✅ 更新成功"); time.sleep(1); st.rerun()
 
 # ==========================================
@@ -558,10 +593,7 @@ def main_page():
     st.markdown("""
         <style>
         .header-buttons {
-            position: fixed;
-            top: 20px;
-            right: 30px;
-            z-index: 9999999;
+            position: fixed; top: 20px; right: 30px; z-index: 9999999;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -577,8 +609,7 @@ def main_page():
         st.markdown('</div>', unsafe_allow_html=True)
 
     c_title, c_actions = st.columns([3, 1], vertical_alignment="bottom")
-    with c_title:
-        st.title("團隊器材中心")
+    with c_title: st.title("團隊器材中心")
     with c_actions:
         if st.session_state.is_admin:
             b1, b2 = st.columns(2, gap="small")
@@ -588,17 +619,17 @@ def main_page():
             st.button("🔐 管理員登入", on_click=lambda: go_to("login"), type="primary", use_container_width=True)
 
     if not df.empty:
-        total = len(df)
-        avail = len(df[df['status']=='在庫'])
+        # 計算總量與借出量
+        total_items = len(df)
+        total_qty = df['quantity'].sum()
+        total_borrowed = df['borrowed'].sum()
+        available_qty = total_qty - total_borrowed
+        
         m1, m2, m3, m4 = st.columns(4)
-        with m1: 
-            with st.container(border=True): st.metric("📦 總項目", total)
-        with m2: 
-            with st.container(border=True): st.metric("✅ 可用", avail)
-        with m3: 
-            with st.container(border=True): st.metric("🛠️ 維修", len(df[df['status']=='維修中']))
-        with m4: 
-            with st.container(border=True): st.metric("👤 借出", len(df[df['status']=='借出中']))
+        with m1: st.metric("📦 器材種類", total_items)
+        with m2: st.metric("📊 庫存總數", int(total_qty))
+        with m3: st.metric("✅ 剩餘可用", int(available_qty))
+        with m4: st.metric("👤 目前借出", int(total_borrowed))
 
     st.write("")
     with st.container(border=True):
@@ -628,29 +659,39 @@ def main_page():
                         img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                         st.markdown(f'<div style="height:200px; overflow:hidden; border-radius:4px; display:flex; justify-content:center; background:#f0f2f6; margin-bottom:12px;"><img src="{img}" style="height:100%; width:100%; object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
-                        qty_display = f" | 數量: {row.get('quantity', 1)}" if row.get('quantity') else ""
-                        st.caption(f"#{row['uid']} {qty_display} | 📍 {row['location']}")
-                        status_map = {"在庫":"green", "借出中":"red", "維修中":"orange", "報廢":"grey"}
-                        color = status_map.get(row['status'], "black")
-                        st.markdown(f':{color}[● {row["status"]}]')
-
-                        if row['status'] == '借出中': st.warning(f"👤 {row['borrower']}")
+                        
+                        # 🔥 動態計算狀態標籤
+                        status_text, status_color = get_status_display(row)
+                        st.caption(f"#{row['uid']} | 📍 {row['location']}")
+                        st.markdown(f':{status_color}[**{status_text}**]')
 
                         st.markdown("---")
                         if st.session_state.is_admin:
                             if st.button("⚙️ 編輯 / 管理", key=f"btn_{row['uid']}", use_container_width=True):
                                 show_edit_modal(row)
                         else:
+                            # 🔥 借用邏輯：計算剩餘量
+                            avail = row['quantity'] - row.get('borrowed', 0)
+                            
+                            # 如果是維修中或已借完，就不能勾選
+                            is_disabled = (avail <= 0) or (row.get('status') in ['維修中', '報廢'])
+                            
                             is_selected = row['uid'] in st.session_state.cart
-                            # 🔥 使用 key 綁定 checkbox 狀態
-                            if st.checkbox("加入借用清單", key=f"check_{row['uid']}", value=is_selected):
-                                if not is_selected:
-                                    st.session_state.cart.add(row['uid'])
-                                    st.rerun() 
-                            else:
-                                if is_selected:
-                                    st.session_state.cart.remove(row['uid'])
-                                    st.rerun()
+                            
+                            # 使用 key 綁定 checkbox
+                            chk = st.checkbox(
+                                "加入借用清單", 
+                                key=f"check_{row['uid']}", 
+                                value=is_selected,
+                                disabled=is_disabled
+                            )
+                            
+                            if chk and not is_selected:
+                                st.session_state.cart[row['uid']] = 1 # 預設借 1 個
+                                st.rerun()
+                            elif not chk and is_selected:
+                                del st.session_state.cart[row['uid']]
+                                st.rerun()
                                     
         else:
             if selected_category != "全部顯示":
