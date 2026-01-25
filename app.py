@@ -74,9 +74,8 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# 🔥 修改：新增 borrow_date_obj 參數，允許自訂借用日期
+# 🔥 修改：新增 borrow_date_obj 參數
 def add_borrow_record(uid, name, borrower, contact, qty, borrow_date_obj):
-    # 將日期轉為 ISO 格式 (加上目前時間，避免都是 00:00)
     current_time = datetime.now().time()
     dt_combined = datetime.combine(borrow_date_obj, current_time)
     
@@ -119,14 +118,13 @@ def get_status_display(row):
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
 
 # ==========================================
-# PDF 生成模組 (新增：顯示借用人資訊與日期)
+# PDF 生成模組
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__(orientation='L', unit='mm', format='A4')
         self.set_auto_page_break(auto=False) 
     
-    # 🔥 新增一個用來設定額外資訊的變數
     def set_meta_info(self, borrower, contact, b_date, r_date):
         self.meta_borrower = borrower
         self.meta_contact = contact
@@ -141,7 +139,6 @@ class PDFReport(FPDF):
         self.set_font_size(24); self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
         self.set_font_size(10); self.cell(0, 8, txt=f"製表日期: {get_taiwan_time_str()}", ln=1, align='R')
         
-        # 🔥 在表頭加入借用資訊
         if hasattr(self, 'meta_borrower'):
             self.set_font_size(12)
             info_text = f"借用人：{self.meta_borrower}   |   聯絡方式：{self.meta_contact}   |   租借期間：{self.meta_b_date} 至 {self.meta_r_date}"
@@ -162,10 +159,8 @@ class PDFReport(FPDF):
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
 
-# 🔥 修改參數：加入借用人資訊
 def create_pdf(cart_data, text_display_map, borrower, contact, b_date, r_date):
     pdf = PDFReport()
-    # 傳入資訊
     pdf.set_meta_info(borrower, contact, str(b_date), str(r_date))
     pdf.add_page()
     
@@ -192,14 +187,13 @@ def create_pdf(cart_data, text_display_map, borrower, contact, b_date, r_date):
     return pdf.output()
 
 # ==========================================
-# Word 生成模組 (新增：顯示借用人資訊與日期)
+# Word 生成模組
 # ==========================================
 def set_cell_bg(cell, color_hex):
     shading_elm = OxmlElement('w:shd')
     shading_elm.set(qn('w:val'), 'clear'); shading_elm.set(qn('w:color'), 'auto'); shading_elm.set(qn('w:fill'), color_hex)
     cell._tc.get_or_add_tcPr().append(shading_elm)
 
-# 🔥 修改參數：加入借用人資訊
 def create_word(cart_data, borrower, contact, b_date, r_date):
     doc = Document(); section = doc.sections[0]; section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Mm(297); section.page_height = Mm(210)
@@ -209,7 +203,6 @@ def create_word(cart_data, borrower, contact, b_date, r_date):
     run = heading.runs[0]; run.font.size = Pt(24); run.bold = True
     run.font.name = "Microsoft JhengHei"; run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     
-    # 🔥 加入借用人資訊段落
     info_para = doc.add_paragraph()
     info_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
     info_run = info_para.add_run(f"借用人：{borrower}    聯絡方式：{contact}    租借期間：{b_date} ~ {r_date}")
@@ -256,9 +249,7 @@ def create_word(cart_data, borrower, contact, b_date, r_date):
 # ==========================================
 if 'cart' not in st.session_state: st.session_state.cart = {}
 if 'latest_order' not in st.session_state: st.session_state.latest_order = None 
-# 用來存訂單的額外資訊 (姓名/電話/日期)
 if 'latest_meta' not in st.session_state: st.session_state.latest_meta = {} 
-
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
 if 'current_page' not in st.session_state: st.session_state.current_page = "home"
 
@@ -294,21 +285,17 @@ def render_header():
             if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
         st.markdown('</div>', unsafe_allow_html=True)
 
-# 下載橫幅 (更新：接收 metadata 並傳給檔案生成器)
+# 下載橫幅
 def render_success_banner():
     if st.session_state.latest_order:
         with st.container(border=True):
             st.success("🎉 借用申請已送出！庫存已扣除。請下載借用單：")
             
             final_list = st.session_state.latest_order
-            # 取出 meta info
             meta = st.session_state.latest_meta
-            name = meta.get('name', '')
-            contact = meta.get('contact', '')
-            b_date = meta.get('b_date', '')
-            r_date = meta.get('r_date', '')
-            
+            name = meta.get('name', ''); contact = meta.get('contact', ''); b_date = meta.get('b_date', ''); r_date = meta.get('r_date', '')
             today_date = get_today_str(); file_prefix = f"equipment_list_{today_date}"
+            
             text_map = {}
             s_idx = 0; t_rows = len(final_list)
             for i in range(t_rows + 1):
@@ -319,7 +306,6 @@ def render_success_banner():
             c1, c2, c3 = st.columns([1, 1, 1])
             with c1:
                 try:
-                    # 🔥 傳入所有資訊
                     pdf_data = create_pdf(final_list, text_map, name, contact, b_date, r_date)
                     st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{file_prefix}.pdf", mime="application/pdf", type="primary", use_container_width=True)
                 except Exception as e: st.error(f"PDF 失敗: {e}")
@@ -330,8 +316,7 @@ def render_success_banner():
                 except Exception as e: st.error(f"Word 失敗: {e}")
             with c3:
                 if st.button("❌ 關閉此訊息", use_container_width=True):
-                    st.session_state.latest_order = None
-                    st.rerun()
+                    st.session_state.latest_order = None; st.rerun()
 
 @st.dialog("⚙️ 編輯/管理器材", width="small")
 def show_edit_modal(item):
@@ -388,8 +373,6 @@ def show_cart_modal(df):
         c_name, c_contact = st.columns(2)
         borrower_name = c_name.text_input("借用人姓名 (必填)", placeholder="王小明")
         contact_info = c_contact.text_input("聯絡方式 (電話/系級)", placeholder="0912-345-678")
-        
-        # 🔥 新增日期選擇器
         c_date1, c_date2 = st.columns(2)
         borrow_date = c_date1.date_input("租借日期", value=datetime.today())
         return_date = c_date2.date_input("預計歸還日期", value=datetime.today() + timedelta(days=7))
@@ -412,7 +395,6 @@ def show_cart_modal(df):
             final_borrow_list.append(item_dict)
 
     st.markdown("---")
-    # 確認借用
     if st.button("✅ 確認借用 (送出申請)", type="primary", use_container_width=True):
         if not borrower_name: st.error("⚠️ 請填寫借用人姓名！")
         else:
@@ -420,18 +402,10 @@ def show_cart_modal(df):
                 for item in final_borrow_list:
                     new_borrowed = item.get('borrowed', 0) + item['borrow_qty']
                     update_equipment_in_db(item['uid'], {'borrowed': new_borrowed})
-                    # 🔥 傳入自訂的 borrow_date
                     add_borrow_record(item['uid'], item['name'], borrower_name, contact_info, item['borrow_qty'], borrow_date)
                 
                 st.session_state.latest_order = final_borrow_list
-                # 🔥 儲存 meta 資訊供下載使用
-                st.session_state.latest_meta = {
-                    "name": borrower_name,
-                    "contact": contact_info,
-                    "b_date": borrow_date,
-                    "r_date": return_date
-                }
-                
+                st.session_state.latest_meta = {"name": borrower_name, "contact": contact_info, "b_date": borrow_date, "r_date": return_date}
                 st.session_state.cart = {}
                 for key in st.session_state.keys():
                     if key.startswith("check_"): st.session_state[key] = False
@@ -449,6 +423,9 @@ def admin_return_page():
     active_borrows = load_active_borrows()
     if active_borrows.empty: st.info("目前沒有未歸還的器材。")
     else:
+        # 🔥 先載入所有器材資料，方便查表 (Category, Location)
+        all_equipment = load_data()
+        
         borrowers = active_borrows['borrower_name'].unique()
         for person in borrowers:
             person_items = active_borrows[active_borrows['borrower_name'] == person]
@@ -458,15 +435,68 @@ def admin_return_page():
                     contact = person_items.iloc[0]['contact_info']
                     st.caption(f"📞 聯絡方式: {contact}")
                 with col_btn:
-                    if st.button(f"⚡ 一鍵歸還全部 ({len(person_items)})", key=f"ret_all_{person}"):
+                    if st.button(f"⚡ 一鍵歸還全部", key=f"ret_all_{person}"):
                         success_count = 0
                         for idx, row in person_items.iterrows():
                             if return_equipment_transaction(row['id'], row['equipment_uid'], row['borrow_qty']):
                                 success_count += 1
                         if success_count > 0:
-                            st.toast(f"✅ 已成功歸還 {person} 的 {success_count} 項器材！")
-                            time.sleep(1); st.rerun()
+                            st.toast(f"✅ 已歸還 {success_count} 項！"); time.sleep(1); st.rerun()
                         else: st.error("歸還失敗")
+
+                # 🔥🔥🔥 新增：補印單據按鈕區 🔥🔥🔥
+                # 準備資料
+                export_list = []
+                b_date_list = []
+                for _, row in person_items.iterrows():
+                    # VLOOKUP: 找出對應的分類
+                    eq_info = all_equipment[all_equipment['uid'] == row['equipment_uid']]
+                    cat = eq_info.iloc[0]['category'] if not eq_info.empty else "其他"
+                    
+                    export_list.append({
+                        "category": cat,
+                        "uid": row['equipment_uid'],
+                        "name": row['equipment_name'],
+                        "borrow_qty": row['borrow_qty']
+                    })
+                    b_date_list.append(row['borrow_date'])
+                
+                # 計算日期範圍 (取最早借出日，與推算歸還日)
+                if b_date_list:
+                    min_date = min(b_date_list)
+                    # 轉換 ISO string -> date object
+                    start_dt = datetime.fromisoformat(min_date).date()
+                    end_dt = start_dt + timedelta(days=7) # 預設借7天
+                else:
+                    start_dt = datetime.today().date()
+                    end_dt = start_dt
+                
+                # 強制排序
+                export_list = sorted(export_list, key=lambda x: (x['category'], x['uid']))
+                
+                # 計算 PDF map
+                text_map = {}
+                s_idx = 0; t_rows = len(export_list)
+                for i in range(t_rows + 1):
+                    if i == t_rows or export_list[i]['category'] != export_list[s_idx]['category']:
+                        text_map[s_idx + (i - s_idx)//2] = export_list[s_idx]['category']
+                        s_idx = i
+                
+                # 下載按鈕
+                bd1, bd2 = st.columns(2)
+                today_date = get_today_str()
+                f_name = f"reprint_{person}_{today_date}"
+                
+                with bd1:
+                    try:
+                        pdf_data = create_pdf(export_list, text_map, person, contact, start_dt, end_dt)
+                        st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{f_name}.pdf", mime="application/pdf", key=f"dl_pdf_{person}", use_container_width=True)
+                    except: pass
+                with bd2:
+                    try:
+                        word_data = create_word(export_list, person, contact, start_dt, end_dt)
+                        st.download_button("📝 下載 Word", data=word_data, file_name=f"{f_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{person}", use_container_width=True)
+                    except: pass
 
                 st.markdown("---")
                 for i, row in person_items.iterrows():
@@ -474,10 +504,10 @@ def admin_return_page():
                     with c1: st.write("📦")
                     with c2: st.write(f"**{row['equipment_name']}**"); st.caption(f"#{row['equipment_uid']}")
                     with c3:
-                        st.write(f"借用數量: {row['borrow_qty']}")
+                        st.write(f"數量: {row['borrow_qty']}")
                         utc_dt = datetime.fromisoformat(row['borrow_date'])
                         tw_dt = utc_dt + timedelta(hours=8)
-                        st.caption(f"🕒 {tw_dt.strftime('%Y-%m-%d %H:%M')}")
+                        st.caption(f"🕒 {tw_dt.strftime('%m-%d %H:%M')}")
                     with c4:
                         if st.button("↩️ 歸還", key=f"ret_{row['id']}", type="primary", use_container_width=True):
                             if return_equipment_transaction(row['id'], row['equipment_uid'], row['borrow_qty']):
