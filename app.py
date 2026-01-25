@@ -19,7 +19,7 @@ from docx.oxml import OxmlElement
 # ==========================================
 # 1. 頁面設定
 # ==========================================
-st.set_page_config(page_title="修蛋吉咧器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="修蛋吉咧團隊器材系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -617,7 +617,7 @@ if st.session_state.current_page == "login":
 else:
     render_header()
     c_title, c_actions = st.columns([3, 1], vertical_alignment="bottom")
-    with c_title: st.title("團隊器材中心")
+    with c_title: st.title("修蛋吉咧團隊器材系統")
     with c_actions:
         if st.session_state.is_admin:
             b1, b2 = st.columns(2, gap="small")
@@ -632,5 +632,6 @@ else:
         with tab2: admin_return_page()
     else:
         render_inventory_view()
+
 
 
