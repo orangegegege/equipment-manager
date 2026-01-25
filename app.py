@@ -60,13 +60,26 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# --- 4. PDF 生成功能 (橫向清點表版) ---
-def create_pdf(selected_items):
-    # 🔥 設定為橫向 (L = Landscape)，單位 mm，格式 A4
+# --- 4. PDF 生成功能 (合併儲存格 + 頁尾固定版) ---
+def create_pdf(selected_items_list):
+    # 1. 轉成 DataFrame 方便排序
+    df = pd.DataFrame(selected_items_list)
+    
+    # 🔥 關鍵步驟：一定要先依照「分類」排序，合併儲存格才不會斷掉
+    if not df.empty:
+        # 先排分類，再排編號
+        df = df.sort_values(by=['category', 'uid'])
+        # 轉回 List 進行列印迴圈
+        sorted_items = df.to_dict('records')
+    else:
+        sorted_items = []
+
+    # 設定 A4 橫向
     pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=35) # 設定底部留白，保留給簽名區
     pdf.add_page()
     
-    # 檢查字體檔是否存在
+    # 檢查字體
     if os.path.exists(FONT_FILE):
         try:
             pdf.add_font('ChineseFont', '', FONT_FILE)
@@ -83,79 +96,107 @@ def create_pdf(selected_items):
     pdf.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
     
     pdf.set_font_size(12)
-    # 顯示匯出時間和一個底線
     pdf.cell(0, 10, txt=f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='R')
-    pdf.line(10, 35, 287, 35) # 畫一條橫線 (A4橫向寬度約297mm)
+    pdf.line(10, 35, 287, 35)
     pdf.ln(5)
 
     # --- 表格設定 ---
     pdf.set_font_size(12)
-    pdf.set_fill_color(232, 139, 0) # 橘色背景
-    pdf.set_text_color(255, 255, 255) # 白色文字
-    pdf.set_line_width(0.3) # 格線寬度
+    pdf.set_fill_color(232, 139, 0)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_line_width(0.3)
 
-    # 🔥 定義欄位標題與寬度 (總寬度約 277mm)
-    # 分類 | 編號 | 名稱 | 數量 | 營前 | 離營 | 營後
+    # 定義欄位標題與寬度
     headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
     col_w = [35, 30, 80, 20, 37, 37, 37] 
     
-    # 繪製表頭
+    # 印表頭
     for i, h in enumerate(headers):
         pdf.cell(col_w[i], 12, h, border=1, align='C', fill=True)
     pdf.ln()
 
-    # --- 表格內容 ---
-    pdf.set_text_color(0, 0, 0) # 黑色文字
-    pdf.set_font_size(11) # 內容字稍微縮小一點
+    # --- 表格內容 (包含合併儲存格邏輯) ---
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font_size(11)
     
-    # 為了美觀，做斑馬紋 (隔行變色)
-    fill = False 
-    pdf.set_fill_color(245, 245, 245) # 淺灰
-
-    for item in selected_items:
+    total_rows = len(sorted_items)
+    
+    for i in range(total_rows):
+        item = sorted_items[i]
+        
         uid = str(item.get('uid', ''))
         name = str(item.get('name', ''))
         cat = str(item.get('category', ''))
-        # 數量轉字串，如果沒有就預設1
-        qty = str(item.get('quantity', '1')) 
+        qty = str(item.get('quantity', '1'))
         
-        # 繪製每一格
-        pdf.cell(col_w[0], 10, cat, border=1, align='C', fill=fill)
-        pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
+        # --- 🔥 合併儲存格邏輯 ---
+        # 判斷是否顯示分類文字 & 畫線
+        # 我們要比較「這一行」跟「上一行」的分類是否相同
         
-        # 名稱欄位如果太長，自動截斷加 ...
+        draw_top_line = False
+        draw_bottom_line = False
+        show_cat_text = False
+        
+        # 如果是第一行，或者跟上一行分類不同 -> 顯示文字，畫上線
+        if i == 0 or sorted_items[i-1].get('category') != cat:
+            draw_top_line = True
+            show_cat_text = True
+            
+        # 如果是最後一行，或者跟下一行分類不同 -> 畫底線
+        if i == total_rows - 1 or sorted_items[i+1].get('category') != cat:
+            draw_bottom_line = True
+
+        # 組合 Border 字串
+        # L=左, R=右, T=上, B=下
+        # 分類欄位永遠有左右線
+        cat_border = 'LR'
+        if draw_top_line: cat_border += 'T'
+        if draw_bottom_line: cat_border += 'B'
+        
+        # 其他欄位永遠是全框 (1)
+        other_border = 1 
+
+        # 決定分類欄位顯示什麼
+        cat_display = cat if show_cat_text else ""
+        
+        # 開始列印
+        # 1. 分類 (套用合併邏輯)
+        pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C')
+        
+        # 2. 編號
+        pdf.cell(col_w[1], 10, uid, border=other_border, align='C')
+        
+        # 3. 名稱 (截斷處理)
         if pdf.get_string_width(name) > col_w[2] - 2:
              display_name = name[:14] + "..."
         else:
              display_name = name
-        pdf.cell(col_w[2], 10, display_name, border=1, align='C', fill=fill)
+        pdf.cell(col_w[2], 10, display_name, border=other_border, align='C')
         
-        pdf.cell(col_w[3], 10, qty, border=1, align='C', fill=fill)
+        # 4. 數量
+        pdf.cell(col_w[3], 10, qty, border=other_border, align='C')
         
-        # 🔥這三格是空白的，讓你們手寫打勾
-        pdf.cell(col_w[4], 10, "", border=1, align='C', fill=fill) # 營前
-        pdf.cell(col_w[5], 10, "", border=1, align='C', fill=fill) # 離營
-        pdf.cell(col_w[6], 10, "", border=1, align='C', fill=fill) # 營後
+        # 5. 三個清點欄位 (空白)
+        pdf.cell(col_w[4], 10, "", border=other_border, align='C')
+        pdf.cell(col_w[5], 10, "", border=other_border, align='C')
+        pdf.cell(col_w[6], 10, "", border=other_border, align='C')
         
         pdf.ln()
-        fill = not fill # 切換顏色
 
-    # --- 底部簽核區 (仿照你的參考圖) ---
-    pdf.ln(15)
-    
-    # 畫一個簡單的簽核框
-    # X 座標, Y 座標, 寬, 高
-    y_start = pdf.get_y()
+    # --- 🔥 頁尾簽名區 (固定在底部) ---
+    # 負數代表從頁面底部算起，-35mm 的位置
+    pdf.set_y(-35) 
     
     pdf.set_font_size(12)
-    pdf.cell(90, 10, "器材負責人 / 管理員：", ln=0)
-    pdf.cell(90, 10, "營隊/活動負責人：", ln=0)
-    pdf.cell(90, 10, "指導老師：", ln=1)
+    # 使用 Cell 排成一列
+    # 總寬度約 277，分成三等份，每份約 92
     
-    pdf.ln(10)
-    pdf.cell(90, 0, "_______________________", ln=0)
-    pdf.cell(90, 0, "_______________________", ln=0)
-    pdf.cell(90, 0, "_______________________", ln=1)
+    # 畫框線裝飾 (可選)
+    # pdf.line(10, pdf.get_y(), 287, pdf.get_y()) # 簽名區上方畫一條線
+    
+    pdf.cell(90, 10, "器材負責人：__________________", align='L')
+    pdf.cell(90, 10, "活動負責人：__________________", align='C')
+    pdf.cell(90, 10, "指導老師：__________________", align='R')
 
     return pdf.output()
 
@@ -257,6 +298,7 @@ def show_cart_modal(df):
         
         # 產生 PDF
         try:
+            # 必須把 dataframe 轉成 list of dicts 傳進去
             pdf_bytes = create_pdf(cart_items.to_dict('records'))
             if pdf_bytes:
                 col2.download_button(
