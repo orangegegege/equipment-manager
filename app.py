@@ -17,7 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ==========================================
-# 1. 頁面設定 (必須放在最第一行，不能斷行)
+# 1. 頁面設定
 # ==========================================
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
@@ -84,16 +84,32 @@ def add_borrow_record(uid, name, borrower, contact, qty):
     supabase.table("borrow_records").insert(data).execute()
 
 def load_active_borrows():
+    # 讀取未歸還的資料
     res = supabase.table("borrow_records").select("*").eq("is_returned", False).order("borrow_date", desc=True).execute()
     return pd.DataFrame(res.data)
 
+# 🔥🔥🔥 智慧歸還邏輯 (修復衝突問題) 🔥🔥🔥
 def return_equipment_transaction(record_id, uid, qty_to_return):
+    # 1. 先抓取該器材「目前資料庫裡」的狀態
     eq_res = supabase.table("equipment").select("borrowed").eq("uid", uid).execute()
+    
     if eq_res.data:
-        current = eq_res.data[0]['borrowed']
-        new_borrowed = max(0, current - qty_to_return)
+        current_borrowed_in_db = eq_res.data[0]['borrowed']
+        
+        # 2. 判斷邏輯：
+        # 如果資料庫裡的「已借出」已經是 0 (代表管理員手動改過了)，那就不扣了，直接歸零。
+        # 如果不是 0，則正常扣除，但最多扣到 0 (避免負數)。
+        new_borrowed = max(0, current_borrowed_in_db - qty_to_return)
+        
+        # 3. 更新器材庫存
         supabase.table("equipment").update({"borrowed": new_borrowed}).eq("uid", uid).execute()
-        supabase.table("borrow_records").update({"is_returned": True, "return_date": datetime.utcnow().isoformat()}).eq("id", record_id).execute()
+        
+        # 4. 更新紀錄表 (標記為已歸還)
+        supabase.table("borrow_records").update({
+            "is_returned": True, 
+            "return_date": datetime.utcnow().isoformat()
+        }).eq("id", record_id).execute()
+        
         return True
     return False
 
@@ -216,7 +232,7 @@ def create_word(cart_data):
     f = io.BytesIO(); doc.save(f); f.seek(0); return f
 
 # ==========================================
-# 介面定義 (Header & Modals) - 修正：移到主邏輯之前
+# 介面定義 (Header & Modals)
 # ==========================================
 def render_header():
     st.markdown(f"""<div id="my-fixed-header"><img src="{LOGO_URL}" style="height: 50px;"></div>""", unsafe_allow_html=True)
@@ -228,7 +244,6 @@ def render_header():
             if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
         st.markdown('</div>', unsafe_allow_html=True)
 
-# 🔥 修正：加回 @st.dialog 標籤
 @st.dialog("⚙️ 編輯/管理器材", width="small")
 def show_edit_modal(item):
     st.caption(f"正在編輯：{item['name']} (#{item['uid']})")
@@ -305,7 +320,6 @@ def show_cart_modal(df):
         c1, c2 = st.columns(2)
         with c1:
             try:
-                # 🔥 修正：正確傳入 text_map
                 pdf_data = create_pdf(final_list, text_map)
                 st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{file_prefix}.pdf", mime="application/pdf", type="primary", use_container_width=True)
             except Exception as e: st.error(f"PDF 錯誤: {e}")
@@ -370,24 +384,48 @@ def show_cart_modal(df):
             if key.startswith("check_"): st.session_state[key] = False
         st.rerun()
 
+# ==========================================
+# 管理員功能：歸還管理 (合併顯示 & 智慧歸還)
+# ==========================================
 def admin_return_page():
     st.markdown("### 📋 借還紀錄 / 歸還管理")
     active_borrows = load_active_borrows()
-    if active_borrows.empty: st.info("目前沒有未歸還的器材。")
+    
+    if active_borrows.empty:
+        st.info("目前沒有未歸還的器材。")
     else:
-        for i, row in active_borrows.iterrows():
-            with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([2, 3, 2, 2])
-                with c1: st.write(f"**{row['borrower_name']}**"); st.caption(f"📞 {row['contact_info']}")
-                with c2: st.write(f"📦 {row['equipment_name']}"); st.caption(f"#{row['equipment_uid']}")
-                with c3: 
-                    b_date = datetime.fromisoformat(row['borrow_date']).strftime('%Y-%m-%d %H:%M')
-                    st.write(f"借用數量: **{row['borrow_qty']}**"); st.caption(f"🕒 {b_date}")
-                with c4:
-                    if st.button("↩️ 歸還", key=f"ret_{row['id']}", type="primary", use_container_width=True):
-                        if return_equipment_transaction(row['id'], row['equipment_uid'], row['borrow_qty']):
-                            st.toast(f"✅ {row['equipment_name']} 已歸還！"); time.sleep(1); st.rerun()
-                        else: st.error("歸還失敗")
+        # 🔥🔥🔥 依照借用人分組 (Group By) 🔥🔥🔥
+        # 取得所有獨特的借用人
+        borrowers = active_borrows['borrower_name'].unique()
+        
+        for person in borrowers:
+            # 取得這個人的所有借用紀錄
+            person_items = active_borrows[active_borrows['borrower_name'] == person]
+            
+            # 使用 Expander 摺疊選單
+            with st.expander(f"👤 {person} (共借 {len(person_items)} 項)", expanded=True):
+                # 顯示聯絡方式 (取第一筆即可)
+                contact = person_items.iloc[0]['contact_info']
+                st.caption(f"📞 聯絡方式: {contact}")
+                
+                # 列出器材
+                for i, row in person_items.iterrows():
+                    c1, c2, c3, c4 = st.columns([1, 3, 2, 2], vertical_alignment="center")
+                    with c1: st.write("📦")
+                    with c2: 
+                        st.write(f"**{row['equipment_name']}**")
+                        st.caption(f"#{row['equipment_uid']}")
+                    with c3:
+                        st.write(f"借用數量: {row['borrow_qty']}")
+                        b_date = datetime.fromisoformat(row['borrow_date']).strftime('%Y-%m-%d %H:%M')
+                        st.caption(f"🕒 {b_date}")
+                    with c4:
+                        if st.button("↩️ 歸還", key=f"ret_{row['id']}", type="primary", use_container_width=True):
+                            if return_equipment_transaction(row['id'], row['equipment_uid'], row['borrow_qty']):
+                                st.toast(f"✅ {row['equipment_name']} 已歸還！")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else: st.error("歸還失敗")
 
 def render_inventory_view():
     df = load_data()
@@ -465,7 +503,7 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# 主執行邏輯 (放在檔案最下方)
+# 主執行邏輯
 # ==========================================
 if st.session_state.current_page == "login":
     render_header(); _, c, _ = st.columns([1,5,1])
