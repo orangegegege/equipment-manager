@@ -61,7 +61,7 @@ def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
 # ==========================================
-# 🔥 4. PDF 生成功能 (專業報表版)
+# 🔥 4. PDF 生成功能 (垂直置中 + 分類欄全白版)
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
@@ -69,8 +69,7 @@ class PDFReport(FPDF):
         self.set_auto_page_break(auto=True, margin=35) # 底部留 35mm 給簽名
 
     def header(self):
-        # --- 頁首 (標題 + 日期 + 表格標題) ---
-        # 1. 載入字體 (因為 header 在每一頁都會執行，所以要確保字體可用)
+        # --- 頁首 ---
         if os.path.exists(FONT_FILE):
             try:
                 self.add_font('ChineseFont', '', FONT_FILE)
@@ -78,77 +77,92 @@ class PDFReport(FPDF):
             except:
                 self.set_font("Helvetica", size=12)
         
-        # 2. 大標題
         self.set_font_size(24)
         self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
         
-        # 3. 日期 (靠右)
         self.set_font_size(10)
         self.cell(0, 8, txt=f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=1, align='R')
         
-        # 4. 畫一條橫線
         self.line(10, self.get_y(), 287, self.get_y())
         self.ln(2)
 
-        # 5. 表格表頭 (這會出現在每一頁的最上方)
+        # 表格表頭
         self.set_font_size(12)
         self.set_fill_color(232, 139, 0) # 橘色背景
         self.set_text_color(255, 255, 255) # 白色文字
         self.set_line_width(0.3)
 
         headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
-        # 定義欄寬 (總寬度 277mm, A4橫向寬度為297, 左右邊距預設10)
         col_w = [35, 30, 80, 20, 37, 37, 37] 
         
         for i, h in enumerate(headers):
             self.cell(col_w[i], 10, h, border=1, align='C', fill=True)
         self.ln()
         
-        # 重設回黑色文字，供下方內容使用
         self.set_text_color(0, 0, 0) 
 
     def footer(self):
-        # --- 頁尾 (簽名區) ---
-        # 移到距離底部 25mm 的位置
+        # --- 頁尾 ---
         self.set_y(-25)
         
         if os.path.exists(FONT_FILE):
             self.set_font('ChineseFont', '', 12)
         
-        # 畫一條分隔線
         self.line(10, self.get_y(), 287, self.get_y())
-        self.ln(5) # 空一點距離
+        self.ln(5) 
         
-        # 簽名欄位 (橫向排列)
         self.cell(90, 10, "器材負責人：__________________", align='L')
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
 
 def create_pdf(selected_items_list):
-    # 1. 準備資料並排序 (排序很重要，不然合併儲存格會亂掉)
+    # 1. 準備資料並排序
     df = pd.DataFrame(selected_items_list)
+    
+    sorted_items = []
+    text_display_map = {} # 用來記錄哪一行要顯示文字 {row_index: "手工具"}
+
     if not df.empty:
+        # 強制依分類排序
         df = df.sort_values(by=['category', 'uid'])
         sorted_items = df.to_dict('records')
-    else:
-        sorted_items = []
-
-    # 2. 初始化 PDF (使用我們自定義的 Class)
+        
+        # --- 🔥 演算法：計算每個分類的「中心行」 ---
+        # 我們需要知道每個分類從哪一行開始，總共有幾行
+        start_index = 0
+        total_rows = len(sorted_items)
+        
+        for i in range(total_rows + 1):
+            # 如果是最後一行，或是當前分類跟起始分類不同 -> 結算上一組
+            if i == total_rows or sorted_items[i]['category'] != sorted_items[start_index]['category']:
+                count = i - start_index
+                
+                # 計算中心點：起始點 + (總數的一半)
+                # 例如 3個項目 (0,1,2)，中心是 1。 0 + (3//2) = 1
+                center_offset = count // 2
+                center_row = start_index + center_offset
+                
+                # 記錄這一行要印出的文字
+                category_name = sorted_items[start_index]['category']
+                text_display_map[center_row] = category_name
+                
+                # 更新起始點
+                start_index = i
+    
+    # 2. 開始製作 PDF
     pdf = PDFReport()
     pdf.add_page()
 
-    # 3. 檢查字體
     if os.path.exists(FONT_FILE):
         pdf.set_font('ChineseFont', '', 11)
     else:
         pdf.set_font("Helvetica", size=11)
         pdf.cell(0, 10, "Error: Font file not found.", ln=1)
 
-    # 4. 開始印內容
     col_w = [35, 30, 80, 20, 37, 37, 37] 
     total_rows = len(sorted_items)
     
-    # 斑馬紋設定
+    # 斑馬紋設定 (淺灰)
     fill = False 
     pdf.set_fill_color(245, 245, 245)
 
@@ -160,36 +174,34 @@ def create_pdf(selected_items_list):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
-        # --- 🔥 合併儲存格邏輯 (視覺處理) ---
+        # --- 邊框邏輯 (決定是否畫上下線) ---
         draw_top = False
         draw_bottom = False
-        show_cat_text = False
         
-        # 如果是第一行，或者跟上一行分類不同 -> 要畫頂線，要顯示文字
+        # 如果是第一行或分類改變 -> 畫頂線
         if i == 0 or sorted_items[i-1].get('category') != cat:
             draw_top = True
-            show_cat_text = True
             
-        # 如果是最後一行，或者跟下一行分類不同 -> 要畫底線
+        # 如果是最後一行或分類改變 -> 畫底線
         if i == total_rows - 1 or sorted_items[i+1].get('category') != cat:
             draw_bottom = True
 
-        # 組合 Border 字串
-        cat_border = 'LR' # 左右永遠要有線
+        cat_border = 'LR' 
         if draw_top: cat_border += 'T'
         if draw_bottom: cat_border += 'B'
         
-        # 分類欄位文字
-        cat_display = cat if show_cat_text else ""
+        # --- 文字邏輯 (決定是否印文字) ---
+        # 只有在我們剛剛計算出來的「中心行」才印文字，其他行印空白
+        cat_display = text_display_map.get(i, "")
         
         # --- 列印儲存格 ---
-        # 1. 分類 (合併效果)
-        pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=fill)
         
-        # 2. 其他欄位 (正常全框)
+        # 1. 分類 (🔥 fill=False 保持白底，達成你的要求)
+        pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=False)
+        
+        # 2. 其他欄位 (fill=fill 保持斑馬紋)
         pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
         
-        # 名稱截斷處理 (避免太長跑版)
         if pdf.get_string_width(name) > col_w[2] - 2:
              display_name = name[:14] + "..."
         else:
@@ -306,6 +318,7 @@ def show_cart_modal(df):
         
         # 產生 PDF
         try:
+            # 必須把 dataframe 轉成 list of dicts 傳進去
             pdf_bytes = create_pdf(cart_items.to_dict('records'))
             if pdf_bytes:
                 col2.download_button(
