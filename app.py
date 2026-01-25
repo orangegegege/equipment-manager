@@ -17,11 +17,13 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ==========================================
-# 🎨 [色彩與基本設定]
+# 1. 頁面設定 (必須放在最第一行)
 # ==========================================
-# 修正：確保這一行沒有斷行
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
+# ==========================================
+# 🎨 [色彩與基本設定]
+# ==========================================
 NAV_HEIGHT = "80px"
 NAV_BG_COLOR = "#E88B00"       # 你的橘色
 PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
@@ -33,7 +35,7 @@ CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文�
 # ⚠️ 字體設定 (請確認檔案已上傳)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
-# --- 1. Supabase 連線 ---
+# --- Supabase 連線 ---
 @st.cache_resource
 def init_connection():
     try:
@@ -46,7 +48,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- 2. 圖片上傳 ---
+# --- 圖片上傳 ---
 def upload_image(file):
     if not file: return None
     try:
@@ -57,10 +59,13 @@ def upload_image(file):
         return supabase.storage.from_(bucket_name).get_public_url(file_name)
     except Exception as e: return None
 
-# --- 3. 資料庫 CRUD ---
+# ==========================================
+# 資料庫 CRUD 與 邏輯函式
+# ==========================================
 def load_data():
     response = supabase.table("equipment").select("*").order("id", desc=True).execute()
     df = pd.DataFrame(response.data)
+    # 防呆：確保有 borrowed 欄位
     if 'borrowed' not in df.columns and not df.empty: df['borrowed'] = 0
     return df
 
@@ -84,7 +89,8 @@ def add_borrow_record(uid, name, borrower, contact, qty):
     supabase.table("borrow_records").insert(data).execute()
 
 def load_active_borrows():
-    return pd.DataFrame(supabase.table("borrow_records").select("*").eq("is_returned", False).order("borrow_date", desc=True).execute().data)
+    res = supabase.table("borrow_records").select("*").eq("is_returned", False).order("borrow_date", desc=True).execute()
+    return pd.DataFrame(res.data)
 
 def return_equipment_transaction(record_id, uid, qty_to_return):
     eq_res = supabase.table("equipment").select("borrowed").eq("uid", uid).execute()
@@ -107,15 +113,17 @@ def get_today_str():
 def get_status_display(row):
     manual = row.get('status', '在庫')
     if manual in ['維修中', '報廢']: return manual, "grey"
+    
     total = row.get('quantity', 1)
     borrowed = row.get('borrowed', 0)
     avail = total - borrowed
+    
     if avail <= 0: return "🔴 已借完 / 暫無庫存", "red"
     elif borrowed > 0: return f"⚠️ 部分在庫 (剩 {avail})", "orange"
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
 
 # ==========================================
-# 4. 檔案生成 (PDF/Word)
+# PDF 生成模組
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
@@ -140,7 +148,6 @@ class PDFReport(FPDF):
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
 
-# 🔥 修復：create_pdf 參數對應問題
 def create_pdf(cart_data, text_display_map):
     pdf = PDFReport(); pdf.add_page()
     if os.path.exists(FONT_FILE): pdf.set_font('ChineseFont', '', 11)
@@ -165,6 +172,9 @@ def create_pdf(cart_data, text_display_map):
         pdf.ln(); fill = not fill 
     return pdf.output()
 
+# ==========================================
+# Word 生成模組
+# ==========================================
 def set_cell_bg(cell, color_hex):
     shading_elm = OxmlElement('w:shd')
     shading_elm.set(qn('w:val'), 'clear'); shading_elm.set(qn('w:color'), 'auto'); shading_elm.set(qn('w:fill'), color_hex)
@@ -213,8 +223,14 @@ def create_word(cart_data):
     f = io.BytesIO(); doc.save(f); f.seek(0); return f
 
 # ==========================================
-# 樣式與狀態管理
+# 狀態管理 & CSS
 # ==========================================
+if 'cart' not in st.session_state: st.session_state.cart = {}
+if 'borrow_success' not in st.session_state: st.session_state.borrow_success = False
+if 'last_borrow_data' not in st.session_state: st.session_state.last_borrow_data = []
+if 'is_admin' not in st.session_state: st.session_state.is_admin = False
+if 'current_page' not in st.session_state: st.session_state.current_page = "home"
+
 st.markdown(f"""
 <style>
     header[data-testid="stHeader"] {{ display: none; }}
@@ -227,12 +243,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-if 'cart' not in st.session_state: st.session_state.cart = {}
-if 'borrow_success' not in st.session_state: st.session_state.borrow_success = False
-if 'last_borrow_data' not in st.session_state: st.session_state.last_borrow_data = []
-if 'is_admin' not in st.session_state: st.session_state.is_admin = False
-if 'current_page' not in st.session_state: st.session_state.current_page = "home"
-
 def go_to(page): st.session_state.current_page = page
 def perform_logout(): 
     st.session_state.is_admin = False; st.session_state.cart = {}; st.session_state.borrow_success = False
@@ -244,7 +254,7 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# 彈窗：借用確認 & 下載
+# 彈窗：借用確認 & 下載 (修復版)
 # ==========================================
 @st.dialog("📋 借用清單確認", width="large")
 def show_cart_modal(df):
@@ -254,7 +264,7 @@ def show_cart_modal(df):
         today_date = get_today_str()
         file_prefix = f"equipment_list_{today_date}"
         
-        # 計算 map (傳給 PDF)
+        # 計算 map (傳給 PDF，解決 TypeError)
         text_map = {}
         s_idx = 0; t_rows = len(final_list)
         for i in range(t_rows + 1):
@@ -265,8 +275,7 @@ def show_cart_modal(df):
         c1, c2 = st.columns(2)
         with c1:
             try:
-                # 🔥 修正：這裡正確傳入 text_map
-                pdf_data = create_pdf(final_list, text_map)
+                pdf_data = create_pdf(final_list, text_map) # 🔥 這裡補上了 text_map
                 st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{file_prefix}.pdf", mime="application/pdf", type="primary", use_container_width=True)
             except Exception as e: st.error(f"PDF 產生失敗: {e}")
         with c2:
@@ -325,7 +334,6 @@ def show_cart_modal(df):
                 st.rerun() 
             except Exception as e: st.error(f"系統錯誤: {e}")
 
-    # 🔥 修復：清空邏輯 (使用 False 覆寫)
     if st.button("🗑️ 清空清單", use_container_width=True):
         st.session_state.cart = {}
         for key in list(st.session_state.keys()):
@@ -333,8 +341,18 @@ def show_cart_modal(df):
         st.rerun()
 
 # ==========================================
-# 管理員：歸還介面
+# 介面函式 (Render Header 移到前面定義)
 # ==========================================
+def render_header():
+    st.markdown(f"""<div id="my-fixed-header"><img src="{LOGO_URL}" style="height: 50px;"></div>""", unsafe_allow_html=True)
+    st.markdown("""<style>.header-buttons { position: fixed; top: 20px; right: 30px; z-index: 9999999; }</style>""", unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="header-buttons">', unsafe_allow_html=True)
+        if not st.session_state.is_admin:
+            cnt = len(st.session_state.cart)
+            if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
+        st.markdown('</div>', unsafe_allow_html=True)
+
 def admin_return_page():
     st.markdown("### 📋 借還紀錄 / 歸還管理")
     active_borrows = load_active_borrows()
@@ -354,9 +372,6 @@ def admin_return_page():
                             st.toast(f"✅ {row['equipment_name']} 已歸還！"); time.sleep(1); st.rerun()
                         else: st.error("歸還失敗")
 
-# ==========================================
-# 主頁
-# ==========================================
 def render_inventory_view():
     df = load_data()
     if not df.empty:
@@ -383,20 +398,18 @@ def render_inventory_view():
                         st.markdown(f'<div style="height:200px;overflow:hidden;border-radius:4px;display:flex;justify-content:center;background:#f0f2f6;margin-bottom:12px;"><img src="{img}" style="height:100%;width:100%;object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
                         
-                        # 🔥🔥🔥 修復：這裡恢復了你喜歡的「動態彩色狀態」 (Green/Orange/Red) 🔥🔥🔥
+                        # 🔥🔥🔥 修復：正確顯示動態狀態標籤 (Green/Orange/Red)
                         stat_txt, stat_col = get_status_display(row)
                         st.caption(f"#{row['uid']} | 📍 {row['location']}")
                         st.markdown(f':{stat_col}[**{stat_txt}**]')
                         st.markdown("---")
                         
                         if st.session_state.is_admin:
-                            # 🔥🔥🔥 修復：管理員按鈕恢復為 Button，不是 Expander
                             if st.button("⚙️ 管理", key=f"btn_{row['uid']}", use_container_width=True): show_edit_modal(row)
                         else:
                             avail = row['quantity'] - row.get('borrowed', 0)
                             dis = (avail <= 0) or (row.get('status') in ['維修中', '報廢'])
                             sel = row['uid'] in st.session_state.cart
-                            # checkbox 狀態由 st.session_state 直接控制
                             if st.checkbox("加入借用清單", key=f"check_{row['uid']}", value=sel, disabled=dis):
                                 if not sel: st.session_state.cart[row['uid']] = 1; st.rerun()
                             elif sel:
@@ -433,7 +446,19 @@ def show_edit_modal(item):
             st.rerun()
         if c_del.checkbox("刪除"): delete_equipment_from_db(item['uid']); st.rerun()
 
-def main_page():
+# ==========================================
+# 主執行區 (Routing)
+# ==========================================
+if st.session_state.current_page == "login":
+    render_header(); _, c, _ = st.columns([1,5,1])
+    with c:
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align:center'>🔐 管理員登入</h2>", unsafe_allow_html=True)
+            st.text_input("密碼", type="password", key="password_input")
+            b1, b2 = st.columns(2)
+            b1.button("取消", on_click=lambda: go_to("home"), use_container_width=True)
+            b2.button("登入", type="primary", on_click=perform_login, use_container_width=True)
+else:
     render_header()
     c_title, c_actions = st.columns([3, 1], vertical_alignment="bottom")
     with c_title: st.title("團隊器材中心")
@@ -451,14 +476,3 @@ def main_page():
         with tab2: admin_return_page()
     else:
         render_inventory_view()
-
-if st.session_state.current_page == "login":
-    render_header(); _, c, _ = st.columns([1,5,1])
-    with c:
-        with st.container(border=True):
-            st.markdown("<h2 style='text-align:center'>🔐 管理員登入</h2>", unsafe_allow_html=True)
-            st.text_input("密碼", type="password", key="password_input")
-            b1, b2 = st.columns(2)
-            b1.button("取消", on_click=lambda: go_to("home"), use_container_width=True)
-            b2.button("登入", type="primary", on_click=perform_login, use_container_width=True)
-else: main_page()
