@@ -19,7 +19,7 @@ from docx.oxml import OxmlElement
 # ==========================================
 # 1. 頁面設定
 # ==========================================
-st.set_page_config(page_title="修蛋吉咧團隊器材系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -74,7 +74,6 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# 🔥 修改：新增 borrow_date_obj 參數
 def add_borrow_record(uid, name, borrower, contact, qty, borrow_date_obj):
     current_time = datetime.now().time()
     dt_combined = datetime.combine(borrow_date_obj, current_time)
@@ -110,9 +109,11 @@ def get_today_str():
 def get_status_display(row):
     manual = row.get('status', '在庫')
     if manual in ['維修中', '報廢']: return manual, "grey"
+    
     total = row.get('quantity', 1)
     borrowed = row.get('borrowed', 0)
     avail = total - borrowed
+    
     if avail <= 0: return "🔴 已借完 / 暫無庫存", "red"
     elif borrowed > 0: return f"⚠️ 部分在庫 (剩 {avail})", "orange"
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
@@ -423,7 +424,6 @@ def admin_return_page():
     active_borrows = load_active_borrows()
     if active_borrows.empty: st.info("目前沒有未歸還的器材。")
     else:
-        # 🔥 先載入所有器材資料，方便查表 (Category, Location)
         all_equipment = load_data()
         
         borrowers = active_borrows['borrower_name'].unique()
@@ -444,12 +444,11 @@ def admin_return_page():
                             st.toast(f"✅ 已歸還 {success_count} 項！"); time.sleep(1); st.rerun()
                         else: st.error("歸還失敗")
 
-                # 🔥🔥🔥 新增：補印單據按鈕區 🔥🔥🔥
-                # 準備資料
+                # 補印單據區
                 export_list = []
                 b_date_list = []
                 for _, row in person_items.iterrows():
-                    # VLOOKUP: 找出對應的分類
+                    # VLOOKUP category
                     eq_info = all_equipment[all_equipment['uid'] == row['equipment_uid']]
                     cat = eq_info.iloc[0]['category'] if not eq_info.empty else "其他"
                     
@@ -461,20 +460,15 @@ def admin_return_page():
                     })
                     b_date_list.append(row['borrow_date'])
                 
-                # 計算日期範圍 (取最早借出日，與推算歸還日)
+                # 計算日期範圍 (取最早借出日)
                 if b_date_list:
                     min_date = min(b_date_list)
-                    # 轉換 ISO string -> date object
                     start_dt = datetime.fromisoformat(min_date).date()
                     end_dt = start_dt + timedelta(days=7) # 預設借7天
                 else:
-                    start_dt = datetime.today().date()
-                    end_dt = start_dt
+                    start_dt = datetime.today().date(); end_dt = start_dt
                 
-                # 強制排序
                 export_list = sorted(export_list, key=lambda x: (x['category'], x['uid']))
-                
-                # 計算 PDF map
                 text_map = {}
                 s_idx = 0; t_rows = len(export_list)
                 for i in range(t_rows + 1):
@@ -482,10 +476,8 @@ def admin_return_page():
                         text_map[s_idx + (i - s_idx)//2] = export_list[s_idx]['category']
                         s_idx = i
                 
-                # 下載按鈕
                 bd1, bd2 = st.columns(2)
-                today_date = get_today_str()
-                f_name = f"reprint_{person}_{today_date}"
+                today_date = get_today_str(); f_name = f"reprint_{person}_{today_date}"
                 
                 with bd1:
                     try:
@@ -519,7 +511,6 @@ def render_inventory_view():
     
     df = load_data()
     
-    # --- 上方數據儀表板 ---
     if not df.empty:
         total = df['quantity'].sum(); borrowed = df['borrowed'].sum()
         m1, m2, m3, m4 = st.columns(4)
@@ -530,50 +521,34 @@ def render_inventory_view():
     search_query = st.text_input("🔍 搜尋...", label_visibility="collapsed")
     st.write("")
 
-    # 🔥🔥🔥 修改重點開始：計算分類數量並製作帶數字的標籤 🔥🔥🔥
     if not df.empty:
-        # 1. 計算每個分類的數量
+        # 🔥🔥🔥 計算分類數量並顯示 🔥🔥🔥
         cat_counts = df['category'].value_counts()
+        display_options = []; option_map = {}
         
-        # 2. 準備顯示用的選項列表 (Display List) 與 對照表 (Mapping)
-        # 對照表格式： { "手工具 (3)": "手工具", "全部顯示 (10)": "全部顯示" }
-        display_options = []
-        option_map = {} # 用來把「顯示名稱」轉回「真實分類名稱」
-        
-        # 處理 "全部顯示"
         total_items = len(df)
         label_all = f"全部顯示 ({total_items})"
         display_options.append(label_all)
         option_map[label_all] = "全部顯示"
         
-        # 處理各個分類
         for cat in CATEGORY_OPTIONS:
-            count = cat_counts.get(cat, 0) # 如果該分類沒東西，數量為 0
+            count = cat_counts.get(cat, 0)
             label = f"{cat} ({count})"
             display_options.append(label)
             option_map[label] = cat
             
-        # 3. 顯示 Pills (傳入帶數字的列表)
-        # selected_pill 會拿到像 "手工具 (3)" 這樣的字串
         selected_pill = st.pills("分類", display_options, default=label_all)
-        
-        # 4. 轉回真實分類名稱供後續篩選
-        # 如果 user 還沒選 (None)，預設為全部顯示
         real_selected_cat = option_map.get(selected_pill, "全部顯示")
 
-        # --- 篩選邏輯 ---
+        # 篩選
         filtered = df
-        # 使用轉譯後的 real_selected_cat 來篩選
-        if real_selected_cat != "全部顯示": 
-            filtered = df[df['category'] == real_selected_cat]
-            
+        if real_selected_cat != "全部顯示": filtered = df[df['category'] == real_selected_cat]
         if search_query: 
             filtered = filtered[
                 filtered['name'].str.contains(search_query, case=False) | 
                 filtered['uid'].str.contains(search_query, case=False)
             ]
         
-        # --- 顯示卡片 ---
         if not filtered.empty:
             st.write("")
             cols = st.columns(3)
@@ -589,18 +564,19 @@ def render_inventory_view():
                         st.markdown(f':{stat_col}[**{stat_txt}**]')
                         st.markdown("---")
                         
+                        # 🔥🔥🔥 修復 Duplicate Key 錯誤：使用 row['id'] 作為 key 🔥🔥🔥
                         if st.session_state.is_admin:
-                            if st.button("⚙️ 管理", key=f"btn_{row['uid']}", use_container_width=True): show_edit_modal(row)
+                            if st.button("⚙️ 管理", key=f"btn_{row['id']}", use_container_width=True): show_edit_modal(row)
                         else:
                             avail = row['quantity'] - row.get('borrowed', 0)
                             dis = (avail <= 0) or (row.get('status') in ['維修中', '報廢'])
                             sel = row['uid'] in st.session_state.cart
-                            if st.checkbox("加入借用清單", key=f"check_{row['uid']}", value=sel, disabled=dis):
+                            if st.checkbox("加入借用清單", key=f"check_{row['id']}", value=sel, disabled=dis):
                                 if not sel: st.session_state.cart[row['uid']] = 1; st.rerun()
                             elif sel:
                                 del st.session_state.cart[row['uid']]; st.rerun()
         else: st.info("無資料")
-    else: st.info("尚無任何器材資料")
+    else: st.info("無資料")
 
 # ==========================================
 # 主執行邏輯
@@ -617,7 +593,7 @@ if st.session_state.current_page == "login":
 else:
     render_header()
     c_title, c_actions = st.columns([3, 1], vertical_alignment="bottom")
-    with c_title: st.title("修蛋吉咧團隊器材系統")
+    with c_title: st.title("團隊器材中心")
     with c_actions:
         if st.session_state.is_admin:
             b1, b2 = st.columns(2, gap="small")
@@ -632,6 +608,3 @@ else:
         with tab2: admin_return_page()
     else:
         render_inventory_view()
-
-
-
