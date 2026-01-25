@@ -74,12 +74,17 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-def add_borrow_record(uid, name, borrower, contact, qty):
+# 🔥 修改：新增 borrow_date_obj 參數，允許自訂借用日期
+def add_borrow_record(uid, name, borrower, contact, qty, borrow_date_obj):
+    # 將日期轉為 ISO 格式 (加上目前時間，避免都是 00:00)
+    current_time = datetime.now().time()
+    dt_combined = datetime.combine(borrow_date_obj, current_time)
+    
     data = {
         "equipment_uid": uid, "equipment_name": name,
         "borrower_name": borrower, "contact_info": contact,
         "borrow_qty": qty, "is_returned": False,
-        "borrow_date": datetime.utcnow().isoformat()
+        "borrow_date": dt_combined.isoformat()
     }
     supabase.table("borrow_records").insert(data).execute()
 
@@ -87,23 +92,13 @@ def load_active_borrows():
     res = supabase.table("borrow_records").select("*").eq("is_returned", False).order("borrow_date", desc=True).execute()
     return pd.DataFrame(res.data)
 
-# 🔥 智慧歸還邏輯 (單筆)
 def return_equipment_transaction(record_id, uid, qty_to_return):
-    # 1. 抓取目前器材庫存
     eq_res = supabase.table("equipment").select("borrowed").eq("uid", uid).execute()
     if eq_res.data:
-        current_borrowed_in_db = eq_res.data[0]['borrowed']
-        # 2. 計算歸還後的借出量 (防止負數)
-        new_borrowed = max(0, current_borrowed_in_db - qty_to_return)
-        
-        # 3. 更新器材表
+        current = eq_res.data[0]['borrowed']
+        new_borrowed = max(0, current - qty_to_return)
         supabase.table("equipment").update({"borrowed": new_borrowed}).eq("uid", uid).execute()
-        
-        # 4. 更新紀錄表
-        supabase.table("borrow_records").update({
-            "is_returned": True, 
-            "return_date": datetime.utcnow().isoformat()
-        }).eq("id", record_id).execute()
+        supabase.table("borrow_records").update({"is_returned": True, "return_date": datetime.utcnow().isoformat()}).eq("id", record_id).execute()
         return True
     return False
 
@@ -124,24 +119,42 @@ def get_status_display(row):
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
 
 # ==========================================
-# PDF 生成模組
+# PDF 生成模組 (新增：顯示借用人資訊與日期)
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__(orientation='L', unit='mm', format='A4')
         self.set_auto_page_break(auto=False) 
+    
+    # 🔥 新增一個用來設定額外資訊的變數
+    def set_meta_info(self, borrower, contact, b_date, r_date):
+        self.meta_borrower = borrower
+        self.meta_contact = contact
+        self.meta_b_date = b_date
+        self.meta_r_date = r_date
+
     def header(self):
         if os.path.exists(FONT_FILE):
             try: self.add_font('ChineseFont', '', FONT_FILE); self.set_font('ChineseFont', '', 12)
             except: self.set_font("Helvetica", size=12)
+        
         self.set_font_size(24); self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
         self.set_font_size(10); self.cell(0, 8, txt=f"製表日期: {get_taiwan_time_str()}", ln=1, align='R')
+        
+        # 🔥 在表頭加入借用資訊
+        if hasattr(self, 'meta_borrower'):
+            self.set_font_size(12)
+            info_text = f"借用人：{self.meta_borrower}   |   聯絡方式：{self.meta_contact}   |   租借期間：{self.meta_b_date} 至 {self.meta_r_date}"
+            self.cell(0, 8, txt=info_text, ln=1, align='L')
+        
         self.line(10, self.get_y(), 287, self.get_y()); self.ln(2)
+        
         self.set_font_size(12); self.set_fill_color(232, 139, 0); self.set_text_color(255, 255, 255); self.set_line_width(0.3)
         headers = ["分類項目", "編號", "器材名稱", "借用數量", "營前清點", "離營清點", "營後清點"]
         col_w = [35, 30, 80, 20, 37, 37, 37] 
         for i, h in enumerate(headers): self.cell(col_w[i], 10, h, border=1, align='C', fill=True)
         self.ln(); self.set_text_color(0, 0, 0) 
+
     def footer(self):
         self.set_y(-25)
         if os.path.exists(FONT_FILE): self.set_font('ChineseFont', '', 12)
@@ -149,8 +162,13 @@ class PDFReport(FPDF):
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
 
-def create_pdf(cart_data, text_display_map):
-    pdf = PDFReport(); pdf.add_page()
+# 🔥 修改參數：加入借用人資訊
+def create_pdf(cart_data, text_display_map, borrower, contact, b_date, r_date):
+    pdf = PDFReport()
+    # 傳入資訊
+    pdf.set_meta_info(borrower, contact, str(b_date), str(r_date))
+    pdf.add_page()
+    
     if os.path.exists(FONT_FILE): pdf.set_font('ChineseFont', '', 11)
     else: pdf.set_font("Helvetica", size=11)
     col_w = [35, 30, 80, 20, 37, 37, 37] 
@@ -174,21 +192,31 @@ def create_pdf(cart_data, text_display_map):
     return pdf.output()
 
 # ==========================================
-# Word 生成模組
+# Word 生成模組 (新增：顯示借用人資訊與日期)
 # ==========================================
 def set_cell_bg(cell, color_hex):
     shading_elm = OxmlElement('w:shd')
     shading_elm.set(qn('w:val'), 'clear'); shading_elm.set(qn('w:color'), 'auto'); shading_elm.set(qn('w:fill'), color_hex)
     cell._tc.get_or_add_tcPr().append(shading_elm)
 
-def create_word(cart_data):
+# 🔥 修改參數：加入借用人資訊
+def create_word(cart_data, borrower, contact, b_date, r_date):
     doc = Document(); section = doc.sections[0]; section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Mm(297); section.page_height = Mm(210)
     section.left_margin = Mm(12); section.right_margin = Mm(12)
+    
     heading = doc.add_paragraph("團隊器材借用 / 清點單"); heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = heading.runs[0]; run.font.size = Pt(24); run.bold = True
     run.font.name = "Microsoft JhengHei"; run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+    
+    # 🔥 加入借用人資訊段落
+    info_para = doc.add_paragraph()
+    info_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    info_run = info_para.add_run(f"借用人：{borrower}    聯絡方式：{contact}    租借期間：{b_date} ~ {r_date}")
+    info_run.font.size = Pt(12); info_run.font.name = "Microsoft JhengHei"; info_run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+
     date_para = doc.add_paragraph(f"製表日期: {get_taiwan_time_str()}"); date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    
     table = doc.add_table(rows=1, cols=7); table.style = 'Table Grid'; table.autofit = False 
     headers = ["分類項目", "編號", "器材名稱", "借用數量", "營前清點", "離營清點", "營後清點"]
     widths = [12, 10, 30, 8, 13, 13, 13]; total_width_mm = 273 
@@ -224,10 +252,13 @@ def create_word(cart_data):
     f = io.BytesIO(); doc.save(f); f.seek(0); return f
 
 # ==========================================
-# 介面定義 (Header & Modals)
+# 介面定義
 # ==========================================
 if 'cart' not in st.session_state: st.session_state.cart = {}
-if 'latest_order' not in st.session_state: st.session_state.latest_order = None # 用來存最新的借用單資料
+if 'latest_order' not in st.session_state: st.session_state.latest_order = None 
+# 用來存訂單的額外資訊 (姓名/電話/日期)
+if 'latest_meta' not in st.session_state: st.session_state.latest_meta = {} 
+
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
 if 'current_page' not in st.session_state: st.session_state.current_page = "home"
 
@@ -245,7 +276,7 @@ st.markdown(f"""
 
 def go_to(page): st.session_state.current_page = page
 def perform_logout(): 
-    st.session_state.is_admin = False; st.session_state.cart = {}; st.session_state.latest_order = None
+    st.session_state.is_admin = False; st.session_state.cart = {}; st.session_state.latest_order = None; st.session_state.latest_meta = {}
     for k in list(st.session_state.keys()): 
         if k.startswith("check_"): del st.session_state[k]
     go_to("home")
@@ -263,12 +294,20 @@ def render_header():
             if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
         st.markdown('</div>', unsafe_allow_html=True)
 
-# 下載橫幅
+# 下載橫幅 (更新：接收 metadata 並傳給檔案生成器)
 def render_success_banner():
     if st.session_state.latest_order:
         with st.container(border=True):
             st.success("🎉 借用申請已送出！庫存已扣除。請下載借用單：")
+            
             final_list = st.session_state.latest_order
+            # 取出 meta info
+            meta = st.session_state.latest_meta
+            name = meta.get('name', '')
+            contact = meta.get('contact', '')
+            b_date = meta.get('b_date', '')
+            r_date = meta.get('r_date', '')
+            
             today_date = get_today_str(); file_prefix = f"equipment_list_{today_date}"
             text_map = {}
             s_idx = 0; t_rows = len(final_list)
@@ -276,17 +315,19 @@ def render_success_banner():
                 if i == t_rows or final_list[i]['category'] != final_list[s_idx]['category']:
                     text_map[s_idx + (i - s_idx)//2] = final_list[s_idx]['category']
                     s_idx = i
+            
             c1, c2, c3 = st.columns([1, 1, 1])
             with c1:
                 try:
-                    pdf_data = create_pdf(final_list, text_map)
+                    # 🔥 傳入所有資訊
+                    pdf_data = create_pdf(final_list, text_map, name, contact, b_date, r_date)
                     st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{file_prefix}.pdf", mime="application/pdf", type="primary", use_container_width=True)
-                except: st.error("PDF 失敗")
+                except Exception as e: st.error(f"PDF 失敗: {e}")
             with c2:
                 try:
-                    word_data = create_word(final_list)
+                    word_data = create_word(final_list, name, contact, b_date, r_date)
                     st.download_button("📝 下載 Word", data=word_data, file_name=f"{file_prefix}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-                except: st.error("Word 失敗")
+                except Exception as e: st.error(f"Word 失敗: {e}")
             with c3:
                 if st.button("❌ 關閉此訊息", use_container_width=True):
                     st.session_state.latest_order = None
@@ -347,6 +388,11 @@ def show_cart_modal(df):
         c_name, c_contact = st.columns(2)
         borrower_name = c_name.text_input("借用人姓名 (必填)", placeholder="王小明")
         contact_info = c_contact.text_input("聯絡方式 (電話/系級)", placeholder="0912-345-678")
+        
+        # 🔥 新增日期選擇器
+        c_date1, c_date2 = st.columns(2)
+        borrow_date = c_date1.date_input("租借日期", value=datetime.today())
+        return_date = c_date2.date_input("預計歸還日期", value=datetime.today() + timedelta(days=7))
 
     cart_uids = list(st.session_state.cart.keys())
     cart_rows = df[df['uid'].isin(cart_uids)].copy().sort_values(by=['category', 'uid'])
@@ -366,7 +412,7 @@ def show_cart_modal(df):
             final_borrow_list.append(item_dict)
 
     st.markdown("---")
-    # 🔥 確認借用後，不顯示下載，而是存狀態並關閉視窗，讓主畫面顯示下載區
+    # 確認借用
     if st.button("✅ 確認借用 (送出申請)", type="primary", use_container_width=True):
         if not borrower_name: st.error("⚠️ 請填寫借用人姓名！")
         else:
@@ -374,12 +420,18 @@ def show_cart_modal(df):
                 for item in final_borrow_list:
                     new_borrowed = item.get('borrowed', 0) + item['borrow_qty']
                     update_equipment_in_db(item['uid'], {'borrowed': new_borrowed})
-                    add_borrow_record(item['uid'], item['name'], borrower_name, contact_info, item['borrow_qty'])
+                    # 🔥 傳入自訂的 borrow_date
+                    add_borrow_record(item['uid'], item['name'], borrower_name, contact_info, item['borrow_qty'], borrow_date)
                 
-                # 儲存到 session 以供主畫面顯示
                 st.session_state.latest_order = final_borrow_list
+                # 🔥 儲存 meta 資訊供下載使用
+                st.session_state.latest_meta = {
+                    "name": borrower_name,
+                    "contact": contact_info,
+                    "b_date": borrow_date,
+                    "r_date": return_date
+                }
                 
-                # 清空購物車
                 st.session_state.cart = {}
                 for key in st.session_state.keys():
                     if key.startswith("check_"): st.session_state[key] = False
@@ -401,28 +453,22 @@ def admin_return_page():
         for person in borrowers:
             person_items = active_borrows[active_borrows['borrower_name'] == person]
             with st.expander(f"👤 {person} (共借 {len(person_items)} 項)", expanded=True):
-                # 🔥 新增一鍵歸還區域
                 col_info, col_btn = st.columns([3, 1])
                 with col_info:
                     contact = person_items.iloc[0]['contact_info']
                     st.caption(f"📞 聯絡方式: {contact}")
                 with col_btn:
-                    # 🔥 一鍵歸還按鈕
                     if st.button(f"⚡ 一鍵歸還全部 ({len(person_items)})", key=f"ret_all_{person}"):
                         success_count = 0
                         for idx, row in person_items.iterrows():
                             if return_equipment_transaction(row['id'], row['equipment_uid'], row['borrow_qty']):
                                 success_count += 1
-                        
                         if success_count > 0:
                             st.toast(f"✅ 已成功歸還 {person} 的 {success_count} 項器材！")
-                            time.sleep(1)
-                            st.rerun()
+                            time.sleep(1); st.rerun()
                         else: st.error("歸還失敗")
 
                 st.markdown("---")
-                
-                # 個別歸還列表
                 for i, row in person_items.iterrows():
                     c1, c2, c3, c4 = st.columns([1, 3, 2, 2], vertical_alignment="center")
                     with c1: st.write("📦")
@@ -439,8 +485,7 @@ def admin_return_page():
                             else: st.error("歸還失敗")
 
 def render_inventory_view():
-    render_success_banner() # 🔥 下載區
-    
+    render_success_banner() 
     df = load_data()
     if not df.empty:
         total = df['quantity'].sum(); borrowed = df['borrowed'].sum()
