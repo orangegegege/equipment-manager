@@ -86,7 +86,8 @@ def get_today_str():
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__(orientation='L', unit='mm', format='A4')
-        self.set_auto_page_break(auto=False) # 🔥 重要：我們要自己控制換頁，才能處理跨頁標題
+        # 🔥 改為 False，因為我們要手動控制換頁，才能處理跨頁標題
+        self.set_auto_page_break(auto=False) 
 
     def header(self):
         if os.path.exists(FONT_FILE):
@@ -126,8 +127,7 @@ class PDFReport(FPDF):
         if os.path.exists(FONT_FILE):
             self.set_font('ChineseFont', '', 12)
         
-        self.line(10, self.get_y(), 287, self.get_y())
-        self.ln(5) 
+        # 🔥 移除了這裡原本的 self.line(...)
         
         self.cell(90, 10, "器材負責人：__________________", align='L')
         self.cell(90, 10, "活動負責人：__________________", align='C')
@@ -149,12 +149,11 @@ def create_pdf(sorted_items, text_display_map):
     pdf.set_fill_color(245, 245, 245)
 
     for i in range(total_rows):
-        # 🔥 檢查是否需要換頁 (A4 橫向高度 210mm，扣到底部留白約 175mm 為安全線)
+        # --- 🔥 換頁檢測邏輯 ---
+        # A4 橫向高度 210mm，底部留 35mm 簽名區，再留一點緩衝，大約到 170mm 就要換頁
         if pdf.get_y() > 170:
             pdf.add_page()
-            # 換頁後，這一行必須被視為「新區塊的開始」
-            # 我們設一個標記，強制這一行畫頂線並顯示文字
-            force_new_page_header = True
+            force_new_page_header = True # 標記：這是一頁的開始
         else:
             force_new_page_header = False
 
@@ -165,24 +164,19 @@ def create_pdf(sorted_items, text_display_map):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
-        # 邊框邏輯
+        # --- 邊框與文字顯示邏輯 ---
         draw_top = False
         draw_bottom = False
         
-        # 1. 正常邏輯：第一行或分類改變
-        if i == 0 or sorted_items[i-1].get('category') != cat: 
+        # 1. 頂部線條：如果是第一筆、分類改變、或者是新頁面的第一筆 -> 畫線
+        if i == 0 or sorted_items[i-1].get('category') != cat or force_new_page_header: 
             draw_top = True
         
-        # 2. 🔥 強制邏輯：如果剛剛換頁了，就算分類跟上一行一樣，也要畫頂線
-        if force_new_page_header:
-            draw_top = True
-
-        # 3. 正常邏輯：最後一行或下一行分類改變
+        # 2. 底部線條：如果是最後一筆、或下一筆分類改變 -> 畫線
         if i == total_rows - 1 or sorted_items[i+1].get('category') != cat: 
             draw_bottom = True
             
-        # 4. 🔥 強制邏輯：如果下一行會爆頁 (簡單預判)，這一行要畫底線 (封口)
-        # 預判下一行的高度 = 目前高度 + 10
+        # 3. 預判下一筆是否會換頁 (如果下一筆會換頁，這一筆最好畫上底線封口)
         if pdf.get_y() + 10 > 170 and not draw_bottom:
             draw_bottom = True
 
@@ -190,12 +184,11 @@ def create_pdf(sorted_items, text_display_map):
         if draw_top: cat_border += 'T'
         if draw_bottom: cat_border += 'B'
         
-        # 文字顯示邏輯
-        # 原本是只在「中心點」顯示
+        # --- 文字顯示 ---
+        # 預設：只在計算好的中心點顯示
         cat_display = text_display_map.get(i, "")
         
-        # 🔥 修正：如果這一行是換頁後的第一行，且原本計算不該顯示文字(因為中心點在上一頁)，
-        # 這裡要強制顯示，不然新頁面的第一格會是空白的
+        # 🔥 強制顯示：如果是新頁面的第一行，不管是不是中心點，都要顯示分類名稱
         if force_new_page_header:
             cat_display = cat
         
@@ -219,7 +212,7 @@ def create_pdf(sorted_items, text_display_map):
     return pdf.output()
 
 # ==========================================
-# 🔥 5. Word 生成功能 (細節優化版)
+# 🔥 5. Word 生成功能
 # ==========================================
 
 def set_cell_bg(cell, color_hex):
@@ -295,8 +288,7 @@ def create_word(sorted_items):
             run.font.name = "Microsoft JhengHei"
             run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
 
-    # Word 的跨頁合併處理比較複雜，這裡採用標準合併
-    # 如果 Word 自動跨頁，它會自己處理文字顯示，我們較難強制控制
+    # Word 合併處理
     col_idx = 0
     start_row = 1 
     while start_row < len(table.rows):
@@ -313,7 +305,8 @@ def create_word(sorted_items):
         start_row = end_row
 
     doc.add_paragraph("\n") 
-    doc.add_paragraph("_" * 125) 
+    # Word 這裡的分隔線我先保留(用底線模擬)，如果你也不想要，可以把下面這行刪掉
+    # doc.add_paragraph("_" * 125) 
     
     sig_table = doc.add_table(rows=1, cols=3)
     sig_table.autofit = True
@@ -454,8 +447,9 @@ def show_cart_modal(df):
             st.write("") 
             st.write("") 
             
-            # 🔥 產生當天日期的檔名
+            # 🔥 產生當天日期的檔名 (equipment_list_YYYY-MM-DD)
             today_date = get_today_str()
+            file_prefix = f"equipment_list_{today_date}"
             
             if export_format == "PDF 文件 (.pdf)":
                 try:
@@ -464,7 +458,7 @@ def show_cart_modal(df):
                         st.download_button(
                             label="⬇️ 下載 PDF 清單",
                             data=bytes(pdf_bytes), 
-                            file_name=f"equipment_list_{today_date}.pdf",
+                            file_name=f"{file_prefix}.pdf",
                             mime="application/pdf",
                             type="primary",
                             use_container_width=True
@@ -478,7 +472,7 @@ def show_cart_modal(df):
                     st.download_button(
                         label="⬇️ 下載 Word 清單",
                         data=word_bytes,
-                        file_name=f"equipment_list_{today_date}.docx",
+                        file_name=f"{file_prefix}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary",
                         use_container_width=True
