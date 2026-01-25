@@ -4,7 +4,16 @@ from supabase import create_client, Client
 from datetime import datetime
 import time
 import os
-from fpdf import FPDF # 確保 requirements.txt 裡寫的是 fpdf2
+import io # 新增：用於處理 Word 檔案流
+from fpdf import FPDF 
+
+# 🔥 新增：Word 處理套件
+from docx import Document
+from docx.shared import Mm, Pt, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.section import WD_ORIENT
+from docx.oxml.ns import qn
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -17,7 +26,7 @@ LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/lo
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
-# ⚠️ 字體設定 (維持你上傳的檔案)
+# ⚠️ 字體設定 (維持你上傳的檔案，僅供 PDF 使用)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
@@ -61,15 +70,14 @@ def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
 # ==========================================
-# 🔥 4. PDF 生成功能 (垂直置中 + 分類欄全白版)
+# 4. PDF 生成功能 (維持完美版)
 # ==========================================
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__(orientation='L', unit='mm', format='A4')
-        self.set_auto_page_break(auto=True, margin=35) # 底部留 35mm 給簽名
+        self.set_auto_page_break(auto=True, margin=35) 
 
     def header(self):
-        # --- 頁首 ---
         if os.path.exists(FONT_FILE):
             try:
                 self.add_font('ChineseFont', '', FONT_FILE)
@@ -86,10 +94,9 @@ class PDFReport(FPDF):
         self.line(10, self.get_y(), 287, self.get_y())
         self.ln(2)
 
-        # 表格表頭
         self.set_font_size(12)
-        self.set_fill_color(232, 139, 0) # 橘色背景
-        self.set_text_color(255, 255, 255) # 白色文字
+        self.set_fill_color(232, 139, 0) 
+        self.set_text_color(255, 255, 255) 
         self.set_line_width(0.3)
 
         headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
@@ -102,7 +109,6 @@ class PDFReport(FPDF):
         self.set_text_color(0, 0, 0) 
 
     def footer(self):
-        # --- 頁尾 ---
         self.set_y(-25)
         
         if os.path.exists(FONT_FILE):
@@ -115,41 +121,7 @@ class PDFReport(FPDF):
         self.cell(90, 10, "活動負責人：__________________", align='C')
         self.cell(90, 10, "指導老師：__________________", align='R')
 
-def create_pdf(selected_items_list):
-    # 1. 準備資料並排序
-    df = pd.DataFrame(selected_items_list)
-    
-    sorted_items = []
-    text_display_map = {} # 用來記錄哪一行要顯示文字 {row_index: "手工具"}
-
-    if not df.empty:
-        # 強制依分類排序
-        df = df.sort_values(by=['category', 'uid'])
-        sorted_items = df.to_dict('records')
-        
-        # --- 🔥 演算法：計算每個分類的「中心行」 ---
-        # 我們需要知道每個分類從哪一行開始，總共有幾行
-        start_index = 0
-        total_rows = len(sorted_items)
-        
-        for i in range(total_rows + 1):
-            # 如果是最後一行，或是當前分類跟起始分類不同 -> 結算上一組
-            if i == total_rows or sorted_items[i]['category'] != sorted_items[start_index]['category']:
-                count = i - start_index
-                
-                # 計算中心點：起始點 + (總數的一半)
-                # 例如 3個項目 (0,1,2)，中心是 1。 0 + (3//2) = 1
-                center_offset = count // 2
-                center_row = start_index + center_offset
-                
-                # 記錄這一行要印出的文字
-                category_name = sorted_items[start_index]['category']
-                text_display_map[center_row] = category_name
-                
-                # 更新起始點
-                start_index = i
-    
-    # 2. 開始製作 PDF
+def create_pdf(sorted_items, text_display_map):
     pdf = PDFReport()
     pdf.add_page()
 
@@ -157,12 +129,10 @@ def create_pdf(selected_items_list):
         pdf.set_font('ChineseFont', '', 11)
     else:
         pdf.set_font("Helvetica", size=11)
-        pdf.cell(0, 10, "Error: Font file not found.", ln=1)
 
     col_w = [35, 30, 80, 20, 37, 37, 37] 
     total_rows = len(sorted_items)
     
-    # 斑馬紋設定 (淺灰)
     fill = False 
     pdf.set_fill_color(245, 245, 245)
 
@@ -174,32 +144,19 @@ def create_pdf(selected_items_list):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
-        # --- 邊框邏輯 (決定是否畫上下線) ---
+        # 邊框邏輯
         draw_top = False
         draw_bottom = False
-        
-        # 如果是第一行或分類改變 -> 畫頂線
-        if i == 0 or sorted_items[i-1].get('category') != cat:
-            draw_top = True
-            
-        # 如果是最後一行或分類改變 -> 畫底線
-        if i == total_rows - 1 or sorted_items[i+1].get('category') != cat:
-            draw_bottom = True
+        if i == 0 or sorted_items[i-1].get('category') != cat: draw_top = True
+        if i == total_rows - 1 or sorted_items[i+1].get('category') != cat: draw_bottom = True
 
         cat_border = 'LR' 
         if draw_top: cat_border += 'T'
         if draw_bottom: cat_border += 'B'
         
-        # --- 文字邏輯 (決定是否印文字) ---
-        # 只有在我們剛剛計算出來的「中心行」才印文字，其他行印空白
         cat_display = text_display_map.get(i, "")
         
-        # --- 列印儲存格 ---
-        
-        # 1. 分類 (🔥 fill=False 保持白底，達成你的要求)
         pdf.cell(col_w[0], 10, cat_display, border=cat_border, align='C', fill=False)
-        
-        # 2. 其他欄位 (fill=fill 保持斑馬紋)
         pdf.cell(col_w[1], 10, uid, border=1, align='C', fill=fill)
         
         if pdf.get_string_width(name) > col_w[2] - 2:
@@ -207,18 +164,97 @@ def create_pdf(selected_items_list):
         else:
              display_name = name
         pdf.cell(col_w[2], 10, display_name, border=1, align='C', fill=fill)
-        
         pdf.cell(col_w[3], 10, qty, border=1, align='C', fill=fill)
-        
-        # 空白清點欄
         pdf.cell(col_w[4], 10, "", border=1, align='C', fill=fill)
         pdf.cell(col_w[5], 10, "", border=1, align='C', fill=fill)
         pdf.cell(col_w[6], 10, "", border=1, align='C', fill=fill)
         
         pdf.ln()
-        fill = not fill # 切換顏色
+        fill = not fill 
 
     return pdf.output()
+
+# ==========================================
+# 🔥 5. Word 生成功能 (新功能！)
+# ==========================================
+def create_word(sorted_items, text_display_map):
+    doc = Document()
+    
+    # 1. 設定為 A4 橫向 (Landscape)
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.page_width = Mm(297)
+    section.page_height = Mm(210)
+    
+    # 設定邊界
+    section.left_margin = Mm(15)
+    section.right_margin = Mm(15)
+    section.top_margin = Mm(15)
+    section.bottom_margin = Mm(15)
+
+    # 2. 標題
+    heading = doc.add_paragraph("團隊器材借用 / 清點單")
+    heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = heading.runs[0]
+    run.font.size = Pt(24)
+    run.bold = True
+    
+    # 3. 日期
+    date_para = doc.add_paragraph(f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    
+    # 4. 建立表格
+    table = doc.add_table(rows=1, cols=7)
+    table.style = 'Table Grid' # 使用 Word 預設格線樣式
+    
+    # 設定表頭
+    hdr_cells = table.rows[0].cells
+    headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
+    for i, text in enumerate(headers):
+        hdr_cells[i].text = text
+        hdr_cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # 簡單的背景色設定在 python-docx 比較複雜，這裡先跳過，保持乾淨白底
+    
+    # 5. 填入資料 (使用跟 PDF 一樣的邏輯)
+    for i, item in enumerate(sorted_items):
+        row_cells = table.add_row().cells
+        
+        # 分類 (使用計算好的中心文字邏輯)
+        cat_text = text_display_map.get(i, "")
+        row_cells[0].text = cat_text
+        
+        row_cells[1].text = str(item.get('uid', ''))
+        row_cells[2].text = str(item.get('name', ''))
+        row_cells[3].text = str(item.get('quantity', '1'))
+        
+        # 設定垂直置中 & 水平置中
+        for cell in row_cells:
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # 6. 頁尾簽名區 (使用一個無框線表格來排版)
+    doc.add_paragraph("\n") # 空一行
+    doc.add_paragraph("___________________________________________________________________________________________________")
+    
+    sig_table = doc.add_table(rows=1, cols=3)
+    sig_table.autofit = True
+    
+    # 填入簽名文字
+    sig_cells = sig_table.rows[0].cells
+    sig_cells[0].text = "器材負責人：__________________"
+    sig_cells[1].text = "活動負責人：__________________"
+    sig_cells[2].text = "指導老師：__________________"
+    
+    # 對齊
+    sig_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+    sig_cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sig_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    # 存到記憶體
+    file_stream = io.BytesIO()
+    doc.save(file_stream)
+    file_stream.seek(0)
+    return file_stream
 
 # --- 頁面設定 ---
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
@@ -293,7 +329,7 @@ def perform_login():
     else: st.error("密碼錯誤")
 
 # ==========================================
-# 彈窗：檢視清單與匯出 PDF
+# 彈窗：檢視清單與匯出 (PDF/Word 選擇版)
 # ==========================================
 @st.dialog("📋 借用清單預覽", width="large")
 def show_cart_modal(df):
@@ -301,36 +337,79 @@ def show_cart_modal(df):
         st.info("清單目前是空的，請先勾選器材！")
         if st.button("關閉"): st.rerun()
     else:
+        # 1. 準備資料邏輯 (排序 & 計算顯示文字)
         cart_items = df[df['uid'].isin(st.session_state.cart)]
-        st.write(f"目前已選擇 {len(cart_items)} 項器材：")
         
-        # 顯示簡單預覽表
+        # 強制排序
+        sorted_df = cart_items.sort_values(by=['category', 'uid'])
+        sorted_items = sorted_df.to_dict('records')
+        
+        # 計算垂直置中文字位置
+        text_display_map = {} 
+        start_index = 0
+        total_rows = len(sorted_items)
+        for i in range(total_rows + 1):
+            if i == total_rows or sorted_items[i]['category'] != sorted_items[start_index]['category']:
+                count = i - start_index
+                center_offset = count // 2
+                center_row = start_index + center_offset
+                text_display_map[center_row] = sorted_items[start_index]['category']
+                start_index = i
+
+        # 2. 顯示預覽表格
+        st.write(f"目前已選擇 {len(cart_items)} 項器材：")
         st.dataframe(
-            cart_items[['category', 'uid', 'name', 'quantity', 'location']], 
+            sorted_df[['category', 'uid', 'name', 'quantity', 'location']], 
             hide_index=True,
             use_container_width=True
         )
         
-        col1, col2 = st.columns([1, 1])
-        if col1.button("🗑️ 清空清單", use_container_width=True):
+        st.markdown("---")
+        
+        # 3. 🔥 格式選擇與下載區
+        col_opt, col_action = st.columns([1, 1])
+        
+        with col_opt:
+            # 讓使用者選擇格式
+            export_format = st.radio("選擇匯出格式：", ["PDF 文件 (.pdf)", "Word 文件 (.docx)"])
+            
+        with col_action:
+            st.write("") # 排版用
+            st.write("") 
+            
+            if export_format == "PDF 文件 (.pdf)":
+                try:
+                    pdf_bytes = create_pdf(sorted_items, text_display_map)
+                    if pdf_bytes:
+                        st.download_button(
+                            label="⬇️ 下載 PDF 清單",
+                            data=bytes(pdf_bytes), 
+                            file_name=f"list_{int(time.time())}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    st.error(f"PDF 錯誤: {e}")
+                    
+            elif export_format == "Word 文件 (.docx)":
+                try:
+                    word_bytes = create_word(sorted_items, text_display_map)
+                    st.download_button(
+                        label="⬇️ 下載 Word 清單",
+                        data=word_bytes,
+                        file_name=f"list_{int(time.time())}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Word 錯誤: {e}")
+
+        # 清空按鈕放在最下面
+        if st.button("🗑️ 清空清單", use_container_width=True):
             st.session_state.cart = set()
             st.rerun()
-        
-        # 產生 PDF
-        try:
-            # 必須把 dataframe 轉成 list of dicts 傳進去
-            pdf_bytes = create_pdf(cart_items.to_dict('records'))
-            if pdf_bytes:
-                col2.download_button(
-                    label="📄 下載清點單 (PDF)",
-                    data=bytes(pdf_bytes), 
-                    file_name=f"camp_equipment_list_{int(time.time())}.pdf",
-                    mime="application/pdf",
-                    type="primary",
-                    use_container_width=True
-                )
-        except Exception as e:
-            st.error(f"PDF 產生失敗: {e}")
 
 # ==========================================
 # Header 組件
