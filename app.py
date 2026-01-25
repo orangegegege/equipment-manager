@@ -17,7 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ==========================================
-# 1. 頁面設定 (必須放在最第一行，不能斷行)
+# 1. 頁面設定 (必須放在最第一行)
 # ==========================================
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
@@ -25,11 +25,14 @@ st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="�
 # 🎨 [色彩與基本設定]
 # ==========================================
 NAV_HEIGHT = "80px"
-NAV_BG_COLOR = "#E88B00"
-PAGE_BG_COLOR = "#F5F5F5"
+NAV_BG_COLOR = "#E88B00"       # 你的橘色
+PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png"
 
+# 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
+
+# ⚠️ 字體設定 (請確認檔案已上傳)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- Supabase 連線 ---
@@ -57,11 +60,12 @@ def upload_image(file):
     except Exception as e: return None
 
 # ==========================================
-# 資料庫 CRUD
+# 資料庫 CRUD 與 邏輯函式
 # ==========================================
 def load_data():
     response = supabase.table("equipment").select("*").order("id", desc=True).execute()
     df = pd.DataFrame(response.data)
+    # 防呆：確保有 borrowed 欄位
     if 'borrowed' not in df.columns and not df.empty: df['borrowed'] = 0
     return df
 
@@ -74,6 +78,7 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
+# 交易紀錄
 def add_borrow_record(uid, name, borrower, contact, qty):
     data = {
         "equipment_uid": uid, "equipment_name": name,
@@ -104,12 +109,15 @@ def get_taiwan_time_str():
 def get_today_str():
     return (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d')
 
+# 🔥 修復：狀態顯示邏輯 (恢復成你喜歡的綠色/橘色樣式)
 def get_status_display(row):
     manual = row.get('status', '在庫')
     if manual in ['維修中', '報廢']: return manual, "grey"
+    
     total = row.get('quantity', 1)
     borrowed = row.get('borrowed', 0)
     avail = total - borrowed
+    
     if avail <= 0: return "🔴 已借完 / 暫無庫存", "red"
     elif borrowed > 0: return f"⚠️ 部分在庫 (剩 {avail})", "orange"
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
@@ -414,6 +422,8 @@ def render_inventory_view():
                         img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                         st.markdown(f'<div style="height:200px;overflow:hidden;border-radius:4px;display:flex;justify-content:center;background:#f0f2f6;margin-bottom:12px;"><img src="{img}" style="height:100%;width:100%;object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
+                        
+                        # 🔥🔥🔥 修復：正確顯示動態狀態標籤 (Green/Orange/Red)
                         stat_txt, stat_col = get_status_display(row)
                         st.caption(f"#{row['uid']} | 📍 {row['location']}")
                         st.markdown(f':{stat_col}[**{stat_txt}**]')
