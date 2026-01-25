@@ -4,16 +4,17 @@ from supabase import create_client, Client
 from datetime import datetime
 import time
 import os
-import io # 新增：用於處理 Word 檔案流
+import io 
 from fpdf import FPDF 
 
-# 🔥 新增：Word 處理套件
+# Word 處理套件
 from docx import Document
-from docx.shared import Mm, Pt, Cm
+from docx.shared import Mm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.section import WD_ORIENT
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 # ==========================================
 # 🎨 [色彩與基本設定]
@@ -26,7 +27,7 @@ LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/lo
 # 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
 
-# ⚠️ 字體設定 (維持你上傳的檔案，僅供 PDF 使用)
+# ⚠️ 字體設定 (僅供 PDF 使用)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- 1. Supabase 連線 ---
@@ -144,7 +145,6 @@ def create_pdf(sorted_items, text_display_map):
         cat = str(item.get('category', ''))
         qty = str(item.get('quantity', '1'))
         
-        # 邊框邏輯
         draw_top = False
         draw_bottom = False
         if i == 0 or sorted_items[i-1].get('category') != cat: draw_top = True
@@ -175,20 +175,27 @@ def create_pdf(sorted_items, text_display_map):
     return pdf.output()
 
 # ==========================================
-# 🔥 5. Word 生成功能 (新功能！)
+# 🔥 5. Word 生成功能 (專業美化版)
 # ==========================================
-def create_word(sorted_items, text_display_map):
+
+# 輔助函式：設定 Word 儲存格背景顏色
+def set_cell_bg(cell, color_hex):
+    shading_elm = OxmlElement('w:shd')
+    shading_elm.set(qn('w:val'), 'clear')
+    shading_elm.set(qn('w:color'), 'auto')
+    shading_elm.set(qn('w:fill'), color_hex)
+    cell._tc.get_or_add_tcPr().append(shading_elm)
+
+def create_word(sorted_items):
     doc = Document()
     
-    # 1. 設定為 A4 橫向 (Landscape)
+    # 1. 設定版面為 A4 橫向
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Mm(297)
     section.page_height = Mm(210)
-    
-    # 設定邊界
-    section.left_margin = Mm(15)
-    section.right_margin = Mm(15)
+    section.left_margin = Mm(12)
+    section.right_margin = Mm(12)
     section.top_margin = Mm(15)
     section.bottom_margin = Mm(15)
 
@@ -197,60 +204,127 @@ def create_word(sorted_items, text_display_map):
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = heading.runs[0]
     run.font.size = Pt(24)
+    run.font.name = "Microsoft JhengHei" # 設定字體
+    run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     run.bold = True
     
-    # 3. 日期
+    # 3. 日期 (靠右)
     date_para = doc.add_paragraph(f"製表日期: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     
-    # 4. 建立表格
+    # 4. 建立表格 (7欄)
     table = doc.add_table(rows=1, cols=7)
-    table.style = 'Table Grid' # 使用 Word 預設格線樣式
+    table.style = 'Table Grid'
+    table.autofit = False # 關閉自動調整，手動設寬度
     
-    # 設定表頭
-    hdr_cells = table.rows[0].cells
+    # --- 表頭設定 ---
     headers = ["分類項目", "編號", "器材名稱", "數量", "營前清點", "離營清點", "營後清點"]
-    for i, text in enumerate(headers):
-        hdr_cells[i].text = text
-        hdr_cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        # 簡單的背景色設定在 python-docx 比較複雜，這裡先跳過，保持乾淨白底
+    # 設定欄寬權重 (總合 100)
+    widths = [12, 10, 30, 8, 13, 13, 13] 
+    total_width_mm = 273 # A4橫寬 297 - 邊界 24
     
-    # 5. 填入資料 (使用跟 PDF 一樣的邏輯)
-    for i, item in enumerate(sorted_items):
+    hdr_row = table.rows[0]
+    for i, text in enumerate(headers):
+        cell = hdr_row.cells[i]
+        cell.text = text
+        # 設定背景色 (橘色 E88B00)
+        set_cell_bg(cell, "E88B00")
+        
+        # 設定文字格式 (白色、粗體、置中)
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.runs[0]
+        run.font.color.rgb = RGBColor(255, 255, 255)
+        run.font.bold = True
+        run.font.size = Pt(12)
+        run.font.name = "Microsoft JhengHei"
+        run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+        
+        # 設定欄寬
+        cell.width = Mm(total_width_mm * widths[i] / 100)
+
+    # --- 5. 填入資料 (含合併儲存格) ---
+    current_cat_start_row = 1 # 資料從第 1 列開始 (第 0 列是表頭)
+    
+    for idx, item in enumerate(sorted_items):
         row_cells = table.add_row().cells
         
-        # 分類 (使用計算好的中心文字邏輯)
-        cat_text = text_display_map.get(i, "")
-        row_cells[0].text = cat_text
-        
+        # 填入資料
+        row_cells[0].text = item.get('category', '')
         row_cells[1].text = str(item.get('uid', ''))
         row_cells[2].text = str(item.get('name', ''))
         row_cells[3].text = str(item.get('quantity', '1'))
         
-        # 設定垂直置中 & 水平置中
-        for cell in row_cells:
+        # 設定每個儲存格的樣式 (垂直置中)
+        for i, cell in enumerate(row_cells):
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cell.width = Mm(total_width_mm * widths[i] / 100)
+            
+            # 設定字體
+            run = cell.paragraphs[0].runs[0] if cell.paragraphs[0].runs else cell.paragraphs[0].add_run()
+            run.font.name = "Microsoft JhengHei"
+            run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
 
-    # 6. 頁尾簽名區 (使用一個無框線表格來排版)
-    doc.add_paragraph("\n") # 空一行
-    doc.add_paragraph("___________________________________________________________________________________________________")
+        # --- 合併邏輯 ---
+        # 如果不是第一筆資料，且分類跟上一筆一樣 -> 執行合併
+        if idx > 0 and item.get('category') == sorted_items[idx-1].get('category'):
+            # 取得上一列的分類儲存格
+            prev_cell = table.rows[current_cat_start_row + (idx - (idx - (len(table.rows)-2))) -1].cells[0] 
+            # Word 的 merge 很直覺：把這一格合併到上一組的起點
+            # 實際上只要 merge 到「目前的分類起點」即可
+            
+            # 簡單做法：每次都跟「上一列」的分類格合併
+            # 但為了保持文字置中，最好的做法是 merge 整個區塊
+            pass 
+        else:
+            # 分類改變了，更新起點索引
+            # (因為我們是一行一行加，Word 的 merge 是 merge_to，所以我們需要在迴圈當下處理)
+            pass
+
+    # 🔥 重新處理合併：Word 比較適合「全部資料填完後，再來掃描合併」
+    # 這樣才不會亂掉
+    
+    # 掃描第一欄 (Category)
+    col_idx = 0
+    start_row = 1 # 跳過表頭
+    while start_row < len(table.rows):
+        cat_text = table.rows[start_row].cells[col_idx].text
+        end_row = start_row + 1
+        
+        while end_row < len(table.rows) and table.rows[end_row].cells[col_idx].text == cat_text:
+            # 清空文字，避免合併後重複出現
+            table.rows[end_row].cells[col_idx].text = "" 
+            end_row += 1
+        
+        # 執行合併 (從 start_row 合併到 end_row - 1)
+        if end_row > start_row + 1:
+            table.rows[start_row].cells[col_idx].merge(table.rows[end_row - 1].cells[col_idx])
+        
+        start_row = end_row
+
+    # 6. 頁尾簽名區
+    doc.add_paragraph("\n") # 空行
+    doc.add_paragraph("_" * 125) # 分隔線
     
     sig_table = doc.add_table(rows=1, cols=3)
     sig_table.autofit = True
+    sig_table.width = Mm(273)
     
-    # 填入簽名文字
     sig_cells = sig_table.rows[0].cells
     sig_cells[0].text = "器材負責人：__________________"
     sig_cells[1].text = "活動負責人：__________________"
     sig_cells[2].text = "指導老師：__________________"
     
-    # 對齊
+    for cell in sig_cells:
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # 強制左中右對齊
     sig_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-    sig_cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
     sig_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-    # 存到記憶體
+    # 存檔
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
@@ -337,14 +411,12 @@ def show_cart_modal(df):
         st.info("清單目前是空的，請先勾選器材！")
         if st.button("關閉"): st.rerun()
     else:
-        # 1. 準備資料邏輯 (排序 & 計算顯示文字)
+        # 1. 準備資料邏輯
         cart_items = df[df['uid'].isin(st.session_state.cart)]
-        
-        # 強制排序
         sorted_df = cart_items.sort_values(by=['category', 'uid'])
         sorted_items = sorted_df.to_dict('records')
         
-        # 計算垂直置中文字位置
+        # 計算垂直置中文字位置 (給 PDF 用)
         text_display_map = {} 
         start_index = 0
         total_rows = len(sorted_items)
@@ -366,15 +438,14 @@ def show_cart_modal(df):
         
         st.markdown("---")
         
-        # 3. 🔥 格式選擇與下載區
+        # 3. 格式選擇與下載區
         col_opt, col_action = st.columns([1, 1])
         
         with col_opt:
-            # 讓使用者選擇格式
             export_format = st.radio("選擇匯出格式：", ["PDF 文件 (.pdf)", "Word 文件 (.docx)"])
             
         with col_action:
-            st.write("") # 排版用
+            st.write("") 
             st.write("") 
             
             if export_format == "PDF 文件 (.pdf)":
@@ -394,7 +465,7 @@ def show_cart_modal(df):
                     
             elif export_format == "Word 文件 (.docx)":
                 try:
-                    word_bytes = create_word(sorted_items, text_display_map)
+                    word_bytes = create_word(sorted_items) # Word 不需要 map，有自己的合併邏輯
                     st.download_button(
                         label="⬇️ 下載 Word 清單",
                         data=word_bytes,
@@ -406,7 +477,6 @@ def show_cart_modal(df):
                 except Exception as e:
                     st.error(f"Word 錯誤: {e}")
 
-        # 清空按鈕放在最下面
         if st.button("🗑️ 清空清單", use_container_width=True):
             st.session_state.cart = set()
             st.rerun()
