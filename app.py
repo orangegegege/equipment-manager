@@ -17,7 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ==========================================
-# 1. 頁面設定 (必須放在最第一行)
+# 1. 頁面設定 (必須放在最第一行，不能斷行)
 # ==========================================
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
@@ -25,14 +25,11 @@ st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="�
 # 🎨 [色彩與基本設定]
 # ==========================================
 NAV_HEIGHT = "80px"
-NAV_BG_COLOR = "#E88B00"       # 你的橘色
-PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
+NAV_BG_COLOR = "#E88B00"
+PAGE_BG_COLOR = "#F5F5F5"
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png"
 
-# 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
-
-# ⚠️ 字體設定 (請確認檔案已上傳)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- Supabase 連線 ---
@@ -65,7 +62,6 @@ def upload_image(file):
 def load_data():
     response = supabase.table("equipment").select("*").order("id", desc=True).execute()
     df = pd.DataFrame(response.data)
-    # 防呆：確保有 borrowed 欄位
     if 'borrowed' not in df.columns and not df.empty: df['borrowed'] = 0
     return df
 
@@ -78,7 +74,6 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# 交易紀錄
 def add_borrow_record(uid, name, borrower, contact, qty):
     data = {
         "equipment_uid": uid, "equipment_name": name,
@@ -102,14 +97,12 @@ def return_equipment_transaction(record_id, uid, qty_to_return):
         return True
     return False
 
-# --- 輔助函式 ---
 def get_taiwan_time_str():
     return (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')
 
 def get_today_str():
     return (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d')
 
-# 🔥 修復：狀態顯示邏輯 (恢復成你喜歡的綠色/橘色樣式)
 def get_status_display(row):
     manual = row.get('status', '在庫')
     if manual in ['維修中', '報廢']: return manual, "grey"
@@ -223,7 +216,7 @@ def create_word(cart_data):
     f = io.BytesIO(); doc.save(f); f.seek(0); return f
 
 # ==========================================
-# 介面定義 (Header & Modals)
+# 介面定義 (Header & Modals) - 修正：移到主邏輯之前
 # ==========================================
 def render_header():
     st.markdown(f"""<div id="my-fixed-header"><img src="{LOGO_URL}" style="height: 50px;"></div>""", unsafe_allow_html=True)
@@ -235,7 +228,7 @@ def render_header():
             if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
         st.markdown('</div>', unsafe_allow_html=True)
 
-# 🔥🔥🔥 修復：這裡加回了 @st.dialog，讓它變回彈窗！
+# 🔥 修正：加回 @st.dialog 標籤
 @st.dialog("⚙️ 編輯/管理器材", width="small")
 def show_edit_modal(item):
     st.caption(f"正在編輯：{item['name']} (#{item['uid']})")
@@ -255,7 +248,7 @@ def show_edit_modal(item):
         
         c3, c4 = st.columns(2)
         new_qty = c3.number_input("總數量", min_value=1, value=item.get('quantity', 1))
-        # 🔥 管理員可以手動修改已借出數量
+        # 管理員手動校正借出量
         new_borrowed = c4.number_input("已借出", min_value=0, max_value=new_qty, value=item.get('borrowed', 0))
         
         new_loc = st.text_input("位置", value=item['location'] or "")
@@ -280,9 +273,7 @@ def show_edit_modal(item):
                 }
                 update_equipment_in_db(item['uid'], updates)
                 st.toast("✅ 更新成功！")
-                # 🔥 強制等待並重整，確保資料庫寫入後畫面更新
-                time.sleep(1)
-                st.rerun()
+                time.sleep(1); st.rerun()
 
 @st.dialog("➕ 新增器材", width="small")
 def show_add_modal():
@@ -314,6 +305,7 @@ def show_cart_modal(df):
         c1, c2 = st.columns(2)
         with c1:
             try:
+                # 🔥 修正：正確傳入 text_map
                 pdf_data = create_pdf(final_list, text_map)
                 st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{file_prefix}.pdf", mime="application/pdf", type="primary", use_container_width=True)
             except Exception as e: st.error(f"PDF 錯誤: {e}")
@@ -423,7 +415,6 @@ def render_inventory_view():
                         st.markdown(f'<div style="height:200px;overflow:hidden;border-radius:4px;display:flex;justify-content:center;background:#f0f2f6;margin-bottom:12px;"><img src="{img}" style="height:100%;width:100%;object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
                         
-                        # 🔥🔥🔥 修復：正確顯示動態狀態標籤 (Green/Orange/Red)
                         stat_txt, stat_col = get_status_display(row)
                         st.caption(f"#{row['uid']} | 📍 {row['location']}")
                         st.markdown(f':{stat_col}[**{stat_txt}**]')
@@ -463,6 +454,19 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
+def go_to(page): st.session_state.current_page = page
+def perform_logout(): 
+    st.session_state.is_admin = False; st.session_state.cart = {}; st.session_state.borrow_success = False
+    for k in list(st.session_state.keys()): 
+        if k.startswith("check_"): del st.session_state[k]
+    go_to("home")
+def perform_login():
+    if st.session_state.password_input == st.secrets["ADMIN_PASSWORD"]: st.session_state.is_admin = True; go_to("home")
+    else: st.error("密碼錯誤")
+
+# ==========================================
+# 主執行邏輯 (放在檔案最下方)
+# ==========================================
 if st.session_state.current_page == "login":
     render_header(); _, c, _ = st.columns([1,5,1])
     with c:
