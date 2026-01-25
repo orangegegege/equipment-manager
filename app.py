@@ -100,6 +100,7 @@ class PDFReport(FPDF):
         self.cell(0, 15, txt="團隊器材借用 / 清點單", ln=1, align='C')
         
         self.set_font_size(10)
+        # 🔥 使用台灣時間
         self.cell(0, 8, txt=f"製表日期: {get_taiwan_time_str()}", ln=1, align='R')
         
         self.line(10, self.get_y(), 287, self.get_y())
@@ -227,6 +228,7 @@ def create_word(sorted_items):
     run.element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     run.bold = True
     
+    # 🔥 使用台灣時間
     date_para = doc.add_paragraph(f"製表日期: {get_taiwan_time_str()}")
     date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     
@@ -466,14 +468,18 @@ def show_cart_modal(df):
                 except Exception as e:
                     st.error(f"Word 錯誤: {e}")
 
-        # 🔥🔥🔥 修復：清空清單邏輯 🔥🔥🔥
+        # 🔥🔥🔥 修復：強制清空 Checkbox 狀態 🔥🔥🔥
         if st.button("🗑️ 清空清單", use_container_width=True):
             # 1. 清空集合
             st.session_state.cart = set()
-            # 2. 強制清除所有 checkbox 的快取狀態
-            for key in list(st.session_state.keys()):
+            
+            # 2. 🔥 強制將所有 checkbox 的 session_state 值設為 False (取消勾選)
+            # 注意：這裡不能用 del，因為 Streamlit 的 checkbox 會記住之前的狀態
+            # 必須明確地告訴它「這個 key 現在是 False」
+            for key in st.session_state.keys():
                 if key.startswith("check_"):
-                    del st.session_state[key]
+                    st.session_state[key] = False
+            
             st.rerun()
 
 # ==========================================
@@ -636,6 +642,7 @@ def main_page():
                                 show_edit_modal(row)
                         else:
                             is_selected = row['uid'] in st.session_state.cart
+                            # 🔥 使用 key 綁定 checkbox 狀態
                             if st.checkbox("加入借用清單", key=f"check_{row['uid']}", value=is_selected):
                                 if not is_selected:
                                     st.session_state.cart.add(row['uid'])
