@@ -17,7 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ==========================================
-# 1. 頁面設定 (必須放在最第一行)
+# 1. 頁面設定 (必須放在最第一行，不能斷行)
 # ==========================================
 st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
@@ -25,14 +25,11 @@ st.set_page_config(page_title="器材管理系統", layout="wide", page_icon="�
 # 🎨 [色彩與基本設定]
 # ==========================================
 NAV_HEIGHT = "80px"
-NAV_BG_COLOR = "#E88B00"       # 你的橘色
-PAGE_BG_COLOR = "#F5F5F5"      # 淺灰底
+NAV_BG_COLOR = "#E88B00"
+PAGE_BG_COLOR = "#F5F5F5"
 LOGO_URL = "https://obmikwclquacitrwzdfc.supabase.co/storage/v1/object/public/logos/logo.png"
 
-# 🔥 統一管理的分類清單
 CATEGORY_OPTIONS = ["手工具", "一般器材", "廚具", "清潔用品", "文具用品", "其他"]
-
-# ⚠️ 字體設定 (請確認檔案已上傳)
 FONT_FILE = "TaipeiSansTCBeta-Regular.ttf"
 
 # --- Supabase 連線 ---
@@ -60,12 +57,11 @@ def upload_image(file):
     except Exception as e: return None
 
 # ==========================================
-# 資料庫 CRUD 與 邏輯函式
+# 資料庫 CRUD
 # ==========================================
 def load_data():
     response = supabase.table("equipment").select("*").order("id", desc=True).execute()
     df = pd.DataFrame(response.data)
-    # 防呆：確保有 borrowed 欄位
     if 'borrowed' not in df.columns and not df.empty: df['borrowed'] = 0
     return df
 
@@ -78,7 +74,6 @@ def update_equipment_in_db(uid, updates):
 def delete_equipment_from_db(uid):
     supabase.table("equipment").delete().eq("uid", uid).execute()
 
-# 交易紀錄
 def add_borrow_record(uid, name, borrower, contact, qty):
     data = {
         "equipment_uid": uid, "equipment_name": name,
@@ -109,15 +104,12 @@ def get_taiwan_time_str():
 def get_today_str():
     return (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d')
 
-# 🔥 修復：狀態顯示邏輯 (恢復成你喜歡的綠色/橘色樣式)
 def get_status_display(row):
     manual = row.get('status', '在庫')
     if manual in ['維修中', '報廢']: return manual, "grey"
-    
     total = row.get('quantity', 1)
     borrowed = row.get('borrowed', 0)
     avail = total - borrowed
-    
     if avail <= 0: return "🔴 已借完 / 暫無庫存", "red"
     elif borrowed > 0: return f"⚠️ 部分在庫 (剩 {avail})", "orange"
     else: return f"✅ 足額在庫 ({avail}/{total})", "green"
@@ -223,48 +215,87 @@ def create_word(cart_data):
     f = io.BytesIO(); doc.save(f); f.seek(0); return f
 
 # ==========================================
-# 狀態管理 & CSS
+# 介面定義 (Header & Modals)
 # ==========================================
-if 'cart' not in st.session_state: st.session_state.cart = {}
-if 'borrow_success' not in st.session_state: st.session_state.borrow_success = False
-if 'last_borrow_data' not in st.session_state: st.session_state.last_borrow_data = []
-if 'is_admin' not in st.session_state: st.session_state.is_admin = False
-if 'current_page' not in st.session_state: st.session_state.current_page = "home"
+def render_header():
+    st.markdown(f"""<div id="my-fixed-header"><img src="{LOGO_URL}" style="height: 50px;"></div>""", unsafe_allow_html=True)
+    st.markdown("""<style>.header-buttons { position: fixed; top: 20px; right: 30px; z-index: 9999999; }</style>""", unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="header-buttons">', unsafe_allow_html=True)
+        if not st.session_state.is_admin:
+            cnt = len(st.session_state.cart)
+            if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
+        st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown(f"""
-<style>
-    header[data-testid="stHeader"] {{ display: none; }}
-    .stApp {{ background-color: {PAGE_BG_COLOR} !important; }}
-    .main .block-container {{ padding-top: 100px !important; max-width: 1200px !important; }}
-    #my-fixed-header {{ position: fixed; top: 0; left: 0; width: 100%; height: {NAV_HEIGHT}; background-color: {NAV_BG_COLOR}; z-index: 999999; display: flex; align-items: center; padding: 0 30px; }}
-    div[data-testid="stVerticalBlockBorderWrapper"] {{ background-color: white !important; border: 1px solid #ddd !important; border-radius: 8px !important; padding: 20px !important; }}
-    .stButton>button {{ border-radius: 6px; background-color: white; color: #333; border: 1px solid #ccc; }}
-    .stButton>button[kind="primary"] {{ background-color: {NAV_BG_COLOR} !important; color: white !important; border: none !important; }}
-</style>
-""", unsafe_allow_html=True)
+# 🔥🔥🔥 修復：這裡加回了 @st.dialog，讓它變回彈窗！
+@st.dialog("⚙️ 編輯/管理器材", width="small")
+def show_edit_modal(item):
+    st.caption(f"正在編輯：{item['name']} (#{item['uid']})")
+    if item['image_url']: st.image(item['image_url'], width=100)
+    
+    with st.form("edit_form"):
+        new_name = st.text_input("名稱", value=item['name'])
+        c1, c2 = st.columns(2)
+        try: cat_idx = CATEGORY_OPTIONS.index(item['category'])
+        except: cat_idx = 0
+        new_cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=cat_idx)
+        
+        status_opts = ["在庫", "維修中", "報廢"]
+        try: status_idx = status_opts.index(item['status'])
+        except: status_idx = 0
+        new_status = c2.selectbox("狀態", status_opts, index=status_idx)
+        
+        c3, c4 = st.columns(2)
+        new_qty = c3.number_input("總數量", min_value=1, value=item.get('quantity', 1))
+        # 🔥 管理員可以手動修改已借出數量
+        new_borrowed = c4.number_input("已借出", min_value=0, max_value=new_qty, value=item.get('borrowed', 0))
+        
+        new_loc = st.text_input("位置", value=item['location'] or "")
+        new_file = st.file_uploader("更換照片", type=['jpg','png'])
+        
+        col_up, col_del = st.columns(2)
+        submitted = col_up.form_submit_button("💾 儲存更新", type="primary", use_container_width=True)
+        delete = col_del.checkbox("刪除此器材")
 
-def go_to(page): st.session_state.current_page = page
-def perform_logout(): 
-    st.session_state.is_admin = False; st.session_state.cart = {}; st.session_state.borrow_success = False
-    for k in list(st.session_state.keys()): 
-        if k.startswith("check_"): del st.session_state[k]
-    go_to("home")
-def perform_login():
-    if st.session_state.password_input == st.secrets["ADMIN_PASSWORD"]: st.session_state.is_admin = True; go_to("home")
-    else: st.error("密碼錯誤")
+        if submitted:
+            if delete:
+                delete_equipment_from_db(item['uid'])
+                st.toast("🗑️ 已刪除")
+                time.sleep(1); st.rerun()
+            else:
+                url = upload_image(new_file) if new_file else item['image_url']
+                updates = {
+                    "name": new_name, "category": new_cat, "status": new_status,
+                    "quantity": new_qty, "borrowed": new_borrowed,
+                    "location": new_loc, "image_url": url,
+                    "updated_at": datetime.now().strftime("%Y-%m-%d")
+                }
+                update_equipment_in_db(item['uid'], updates)
+                st.toast("✅ 更新成功！")
+                # 🔥 強制等待並重整，確保資料庫寫入後畫面更新
+                time.sleep(1)
+                st.rerun()
 
-# ==========================================
-# 彈窗：借用確認 & 下載 (修復版)
-# ==========================================
+@st.dialog("➕ 新增器材", width="small")
+def show_add_modal():
+    st.caption("填寫資訊")
+    with st.form("add_form", clear_on_submit=True):
+        name = st.text_input("名稱"); uid = st.text_input("編號")
+        c1, c2 = st.columns(2); cat = c1.selectbox("分類", CATEGORY_OPTIONS); status = c2.selectbox("狀態", ["在庫", "維修中", "報廢"])
+        c3, c4 = st.columns(2); qty = c3.number_input("總數", 1); loc = c4.text_input("位置")
+        file = st.file_uploader("照片")
+        if st.form_submit_button("新增", type="primary", use_container_width=True):
+            url = upload_image(file)
+            add_equipment_to_db({"uid": uid, "name": name, "category": cat, "status": status, "location": loc, "quantity": qty, "borrowed": 0, "image_url": url, "updated_at": datetime.now().strftime("%Y-%m-%d")})
+            st.rerun()
+
 @st.dialog("📋 借用清單確認", width="large")
 def show_cart_modal(df):
     if st.session_state.borrow_success:
         st.success("🎉 借用申請已送出！庫存已更新。")
         final_list = st.session_state.last_borrow_data
-        today_date = get_today_str()
-        file_prefix = f"equipment_list_{today_date}"
+        today_date = get_today_str(); file_prefix = f"equipment_list_{today_date}"
         
-        # 計算 map (傳給 PDF，解決 TypeError)
         text_map = {}
         s_idx = 0; t_rows = len(final_list)
         for i in range(t_rows + 1):
@@ -275,18 +306,17 @@ def show_cart_modal(df):
         c1, c2 = st.columns(2)
         with c1:
             try:
-                pdf_data = create_pdf(final_list, text_map) # 🔥 這裡補上了 text_map
+                pdf_data = create_pdf(final_list, text_map)
                 st.download_button("📄 下載 PDF", data=bytes(pdf_data), file_name=f"{file_prefix}.pdf", mime="application/pdf", type="primary", use_container_width=True)
-            except Exception as e: st.error(f"PDF 產生失敗: {e}")
+            except Exception as e: st.error(f"PDF 錯誤: {e}")
         with c2:
             try:
                 word_data = create_word(final_list)
                 st.download_button("📝 下載 Word", data=word_data, file_name=f"{file_prefix}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-            except Exception as e: st.error(f"Word 產生失敗: {e}")
+            except Exception as e: st.error(f"Word 錯誤: {e}")
             
         if st.button("關閉視窗", use_container_width=True):
-            st.session_state.borrow_success = False
-            st.rerun()
+            st.session_state.borrow_success = False; st.rerun()
         return
 
     if not st.session_state.cart:
@@ -340,19 +370,6 @@ def show_cart_modal(df):
             if key.startswith("check_"): st.session_state[key] = False
         st.rerun()
 
-# ==========================================
-# 介面函式 (Render Header 移到前面定義)
-# ==========================================
-def render_header():
-    st.markdown(f"""<div id="my-fixed-header"><img src="{LOGO_URL}" style="height: 50px;"></div>""", unsafe_allow_html=True)
-    st.markdown("""<style>.header-buttons { position: fixed; top: 20px; right: 30px; z-index: 9999999; }</style>""", unsafe_allow_html=True)
-    with st.container():
-        st.markdown('<div class="header-buttons">', unsafe_allow_html=True)
-        if not st.session_state.is_admin:
-            cnt = len(st.session_state.cart)
-            if st.button(f"📋 借用清單 ({cnt})", type="primary"): show_cart_modal(load_data())
-        st.markdown('</div>', unsafe_allow_html=True)
-
 def admin_return_page():
     st.markdown("### 📋 借還紀錄 / 歸還管理")
     active_borrows = load_active_borrows()
@@ -397,8 +414,6 @@ def render_inventory_view():
                         img = row['image_url'] if row['image_url'] else "https://cdn-icons-png.flaticon.com/512/4992/4992482.png"
                         st.markdown(f'<div style="height:200px;overflow:hidden;border-radius:4px;display:flex;justify-content:center;background:#f0f2f6;margin-bottom:12px;"><img src="{img}" style="height:100%;width:100%;object-fit:cover;"></div>', unsafe_allow_html=True)
                         st.markdown(f"#### {row['name']}")
-                        
-                        # 🔥🔥🔥 修復：正確顯示動態狀態標籤 (Green/Orange/Red)
                         stat_txt, stat_col = get_status_display(row)
                         st.caption(f"#{row['uid']} | 📍 {row['location']}")
                         st.markdown(f':{stat_col}[**{stat_txt}**]')
@@ -417,38 +432,27 @@ def render_inventory_view():
         else: st.info("無資料")
     else: st.info("無資料")
 
-def show_add_modal():
-    st.caption("填寫資訊")
-    with st.form("add"):
-        name = st.text_input("名稱"); uid = st.text_input("編號")
-        c1, c2 = st.columns(2); cat = c1.selectbox("分類", CATEGORY_OPTIONS); status = c2.selectbox("狀態", ["在庫", "維修中", "報廢"])
-        c3, c4 = st.columns(2); qty = c3.number_input("總數", 1); loc = c4.text_input("位置")
-        file = st.file_uploader("照片")
-        if st.form_submit_button("新增", type="primary"):
-            url = upload_image(file)
-            add_equipment_to_db({"uid": uid, "name": name, "category": cat, "status": status, "location": loc, "quantity": qty, "borrowed": 0, "image_url": url, "updated_at": datetime.now().strftime("%Y-%m-%d")})
-            st.rerun()
-
-def show_edit_modal(item):
-    st.caption(f"編輯 {item['name']}")
-    with st.form("edit"):
-        name = st.text_input("名稱", item['name'])
-        c1, c2 = st.columns(2); cat = c1.selectbox("分類", CATEGORY_OPTIONS, index=CATEGORY_OPTIONS.index(item['category']) if item['category'] in CATEGORY_OPTIONS else 0)
-        s_opts = ["在庫", "維修中", "報廢"]; st_idx = s_opts.index(item['status']) if item['status'] in s_opts else 0
-        status = c2.selectbox("狀態", s_opts, index=st_idx)
-        c3, c4 = st.columns(2); qty = c3.number_input("總數", 1, value=item.get('quantity', 1))
-        bor = c4.number_input("已借出", 0, qty, item.get('borrowed', 0))
-        loc = st.text_input("位置", item['location']); file = st.file_uploader("更換照片")
-        c_up, c_del = st.columns(2)
-        if c_up.form_submit_button("儲存", type="primary"):
-            url = upload_image(file) if file else item['image_url']
-            update_equipment_in_db(item['uid'], {"name": name, "category": cat, "status": status, "quantity": qty, "borrowed": bor, "location": loc, "image_url": url})
-            st.rerun()
-        if c_del.checkbox("刪除"): delete_equipment_from_db(item['uid']); st.rerun()
-
 # ==========================================
-# 主執行區 (Routing)
+# 狀態與 CSS
 # ==========================================
+if 'cart' not in st.session_state: st.session_state.cart = {}
+if 'borrow_success' not in st.session_state: st.session_state.borrow_success = False
+if 'last_borrow_data' not in st.session_state: st.session_state.last_borrow_data = []
+if 'is_admin' not in st.session_state: st.session_state.is_admin = False
+if 'current_page' not in st.session_state: st.session_state.current_page = "home"
+
+st.markdown(f"""
+<style>
+    header[data-testid="stHeader"] {{ display: none; }}
+    .stApp {{ background-color: {PAGE_BG_COLOR} !important; }}
+    .main .block-container {{ padding-top: 100px !important; max-width: 1200px !important; }}
+    #my-fixed-header {{ position: fixed; top: 0; left: 0; width: 100%; height: {NAV_HEIGHT}; background-color: {NAV_BG_COLOR}; z-index: 999999; display: flex; align-items: center; padding: 0 30px; }}
+    div[data-testid="stVerticalBlockBorderWrapper"] {{ background-color: white !important; border: 1px solid #ddd !important; border-radius: 8px !important; padding: 20px !important; }}
+    .stButton>button {{ border-radius: 6px; background-color: white; color: #333; border: 1px solid #ccc; }}
+    .stButton>button[kind="primary"] {{ background-color: {NAV_BG_COLOR} !important; color: white !important; border: none !important; }}
+</style>
+""", unsafe_allow_html=True)
+
 if st.session_state.current_page == "login":
     render_header(); _, c, _ = st.columns([1,5,1])
     with c:
